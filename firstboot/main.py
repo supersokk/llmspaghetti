@@ -223,18 +223,27 @@ def apply_system_settings(form_data):
 def start_stack():
     """Pull images and start the stack in the background.
 
-    Stops the firstboot service before bringing up Docker so Open WebUI
-    can bind to port 3000 without a conflict.
+    Firstboot runs on port 3001 so it stays alive (serving the done page
+    with live status polling) while Docker images download. Once Open WebUI
+    is healthy on port 3000, we switch the Caddyfile and stop firstboot.
     """
     compose = f"docker compose -f {INSTALL_DIR}/docker-compose.yml"
     log = open(INSTALL_DIR / "logs" / "stack-startup.log", "w")
-    # Small sleep gives the browser time to receive the JSON response
-    # before this process kills the server it's talking to.
+    switch_caddyfile = (
+        "printf ':80 {\\n"
+        "    handle /api/* { uri strip_prefix /api; reverse_proxy localhost:4000 }\\n"
+        "    handle { reverse_proxy localhost:3000 }\\n"
+        "    encode gzip\\n"
+        "}\\n' > /etc/caddy/Caddyfile"
+        " && systemctl reload caddy"
+        " && systemctl stop llmspaghetti-firstboot.service"
+    )
     subprocess.Popen(
-        f"sleep 3 && systemctl stop llmspaghetti-firstboot.service"
-        f" && {compose} pull"
+        f"{compose} pull"
         f" && {compose} up -d"
-        f" && systemctl enable llmspaghetti",
+        f" && systemctl enable llmspaghetti"
+        f" && until curl -sf http://localhost:3000 > /dev/null 2>&1; do sleep 5; done"
+        f" && {switch_caddyfile}",
         shell=True, stdout=log, stderr=log,
     )
 
@@ -381,7 +390,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 3000)),
+        port=int(os.environ.get("PORT", 3001)),
         log_level="warning",
         access_log=False,
     )

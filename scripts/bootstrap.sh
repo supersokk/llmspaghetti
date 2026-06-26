@@ -165,18 +165,17 @@ fi
 mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << 'EOF'
 # LLMSpaghetti Caddy config
-# Port 80 serves the first-boot wizard until setup is complete,
-# then switches to Open WebUI.
+# Initially proxies to the first-boot wizard (port 3001).
+# After setup completes, start_stack() rewrites this to point to
+# Open WebUI (port 3000) and reloads Caddy automatically.
 
 :80 {
-    # LiteLLM API
     handle /api/* {
         uri strip_prefix /api
         reverse_proxy localhost:4000
     }
-    # Open WebUI / first-boot wizard
     handle {
-        reverse_proxy localhost:3000
+        reverse_proxy localhost:3001
     }
     encode gzip
     log {
@@ -184,8 +183,6 @@ cat > /etc/caddy/Caddyfile << 'EOF'
         format json
     }
 }
-
-# Cockpit on 9090 (no proxy needed, it handles its own TLS)
 EOF
 
 mkdir -p /var/log/caddy
