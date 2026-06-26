@@ -221,11 +221,13 @@ def apply_system_settings(form_data):
 
 
 def start_stack():
-    """Start the Docker Compose stack."""
+    """Start the Docker Compose stack in the background so the wizard can respond immediately."""
     compose = f"docker compose -f {INSTALL_DIR}/docker-compose.yml"
-    run(f"{compose} pull")
-    run(f"{compose} up -d")
-    run("systemctl enable llmspaghetti")
+    log = open(INSTALL_DIR / "logs" / "stack-startup.log", "w")
+    subprocess.Popen(
+        f"{compose} pull && {compose} up -d && systemctl enable llmspaghetti",
+        shell=True, stdout=log, stderr=log,
+    )
 
 
 def pull_models_background(model_ids):
