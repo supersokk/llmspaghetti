@@ -6,10 +6,16 @@
 cockpit-plugin/node_modules/
 cockpit-plugin/dist/
 
-# ── ISO build artifacts ───────────────────────────────────────────────────────
-iso/cache/          
+# ── VS Code extension build ───────────────────────────────────────────────────
+vscode-extension/node_modules/
+vscode-extension/out/
+vscode-extension/*.vsix
+
+# ── ISO / release build artifacts ────────────────────────────────────────────
+iso/cache/
 *.iso
 llmos-*.tar.gz
+llmspaghetti*.tar.gz
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -28,6 +34,7 @@ venv/
 .env.local
 *.key
 config/master_key
+config/api_keys.env
 config/litellm_config.yaml.local
 
 # ── Runtime / install artifacts ───────────────────────────────────────────────
