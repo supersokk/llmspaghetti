@@ -5,8 +5,6 @@
 #   open-webui   Chat UI + model manager  → port 3000
 #   litellm      OpenAI-compatible proxy  → port 4000
 
-version: "3.9"
-
 networks:
   llmspaghetti:
     driver: bridge

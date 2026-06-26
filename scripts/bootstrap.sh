@@ -90,11 +90,14 @@ step "Installing LLMSpaghetti files"
 if [[ -d "$SCRIPT_DIR/../console" ]]; then
   cp -r "$SCRIPT_DIR/../console"   "$INSTALL_DIR/"
   cp -r "$SCRIPT_DIR/../firstboot" "$INSTALL_DIR/"
+  cp -r "$SCRIPT_DIR/../router"    "$INSTALL_DIR/"
+  cp -r "$SCRIPT_DIR/../eval"      "$INSTALL_DIR/"
+  cp -r "$SCRIPT_DIR/../config/."  "$INSTALL_DIR/config/"
   cp -r "$SCRIPT_DIR/../stack/."   "$INSTALL_DIR/"
-  cp "$SCRIPT_DIR/gpu-detect.sh"       "$INSTALL_DIR/scripts/"
-  cp "$SCRIPT_DIR/install-gpu-drivers.sh" "$INSTALL_DIR/scripts/"
-  cp "$SCRIPT_DIR/spag-cli.sh"        /usr/local/bin/spag
-  cp "$SCRIPT_DIR/spag-watchdog.sh"            /usr/local/bin/llmspaghetti-watchdog
+  cp "$SCRIPT_DIR/gpu-detect.sh"            "$INSTALL_DIR/scripts/"
+  cp "$SCRIPT_DIR/install-gpu-drivers.sh"   "$INSTALL_DIR/scripts/"
+  cp "$SCRIPT_DIR/spag-cli.sh"              /usr/local/bin/spag
+  cp "$SCRIPT_DIR/spag-watchdog.sh"         /usr/local/bin/llmspaghetti-watchdog
   chmod +x /usr/local/bin/spag /usr/local/bin/llmspaghetti-watchdog
 fi
 
