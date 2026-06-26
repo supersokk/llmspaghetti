@@ -221,11 +221,20 @@ def apply_system_settings(form_data):
 
 
 def start_stack():
-    """Start the Docker Compose stack in the background so the wizard can respond immediately."""
+    """Pull images and start the stack in the background.
+
+    Stops the firstboot service before bringing up Docker so Open WebUI
+    can bind to port 3000 without a conflict.
+    """
     compose = f"docker compose -f {INSTALL_DIR}/docker-compose.yml"
     log = open(INSTALL_DIR / "logs" / "stack-startup.log", "w")
+    # Small sleep gives the browser time to receive the JSON response
+    # before this process kills the server it's talking to.
     subprocess.Popen(
-        f"{compose} pull && {compose} up -d && systemctl enable llmspaghetti",
+        f"sleep 3 && systemctl stop llmspaghetti-firstboot.service"
+        f" && {compose} pull"
+        f" && {compose} up -d"
+        f" && systemctl enable llmspaghetti",
         shell=True, stdout=log, stderr=log,
     )
 
