@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Done!{% endblock %}
+
+{% block content %}
+<div class="card" style="text-align:center;padding:3rem 2rem">
+  <div style="font-size:3rem;margin-bottom:1rem">🎉</div>
+  <div class="card-title" style="font-size:1.5rem;margin-bottom:0.5rem">LLMSpaghetti is running!</div>
+  <div class="card-desc" style="margin-bottom:2rem">
+    Your AI gateway is live. Models are downloading in the background.
+  </div>
+
+  <div style="text-align:left;margin-bottom:2rem">
+    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.5rem;font-weight:600">OPEN YOUR INTERFACES</div>
+    <div class="url-box">http://{{ ip }} &nbsp;·&nbsp; Chat &amp; Model Manager</div>
+    <div class="url-box">http://{{ ip }}:9090 &nbsp;·&nbsp; Server Management (Cockpit)</div>
+    <div class="url-box">http://{{ ip }}/api/v1 &nbsp;·&nbsp; OpenAI-compatible API</div>
+  </div>
+
+  <div style="text-align:left;margin-bottom:2rem">
+    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.5rem;font-weight:600">YOUR API KEY (for IDE/CLI)</div>
+    <div class="url-box" style="font-size:0.85rem;word-break:break-all">{{ master_key }}</div>
+    <div class="hint" style="margin-top:0.4rem">Point Cursor, Continue.dev, Aider, or any OpenAI-compatible tool at the API URL above with this key.</div>
+  </div>
+
+  <div style="text-align:left;margin-bottom:2rem">
+    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.75rem;font-weight:600">WHAT'S HAPPENING NOW</div>
+    <div id="service-status">
+      <div style="color:var(--text-dim);font-size:0.9rem">Checking services...</div>
+    </div>
+  </div>
+
+  <a href="http://{{ ip }}" class="btn btn-primary" style="font-size:1rem;padding:0.9rem 2rem">
+    Open LLMSpaghetti →
+  </a>
+</div>
+
+<script>
+  async function pollStatus() {
+    try {
+      const res  = await fetch('/api/status');
+      const data = await res.json();
+
+      const dot = s => s === 'running' ? '🟢' : s === 'stopped' ? '⚫' : '🟡';
+      const rows = Object.entries(data.services).map(([k,v]) =>
+        `<tr><td style="color:var(--text-dim);padding:0.25rem 0;width:40%">${k}</td>
+             <td>${dot(v)} ${v}</td></tr>`
+      ).join('');
+
+      const models = data.models.length
+        ? data.models.map(m => `<div style="font-size:0.88rem;color:var(--green)">✓ ${m}</div>`).join('')
+        : '<div style="color:var(--text-dim);font-size:0.88rem">Downloading... check back in a few minutes</div>';
+
+      document.getElementById('service-status').innerHTML =
+        `<table style="width:100%;border-collapse:collapse">${rows}</table>
+         <div style="margin-top:1rem;font-size:0.85rem;color:var(--text-dim);font-weight:600">DOWNLOADED MODELS</div>
+         <div style="margin-top:0.4rem">${models}</div>`;
+    } catch (e) {
+      // silently ignore
+    }
+  }
+
+  pollStatus();
+  setInterval(pollStatus, 5000);
+</script>
+{% endblock %}

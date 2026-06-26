@@ -1,0 +1,14 @@
+[Unit]
+Description=LLMOS Service Watchdog
+After=llmspaghetti.service
+ConditionPathExists=/opt/llmspaghetti/.firstboot-complete
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/llmspaghetti-watchdog
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

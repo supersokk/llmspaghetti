@@ -1,0 +1,20 @@
+{
+  "version": 0,
+  "require": {
+    "cockpit": ">=330"
+  },
+  "name": "llmspaghetti",
+  "technology": "React",
+  "menu": {
+    "llmspaghetti": {
+      "label": "LLMSpaghetti",
+      "order": 1
+    }
+  },
+  "dashboard": {
+    "llmspaghetti-main": {
+      "label": "LLMSpaghetti",
+      "order": 1
+    }
+  }
+}

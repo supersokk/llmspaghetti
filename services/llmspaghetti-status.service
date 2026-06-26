@@ -1,0 +1,21 @@
+[Unit]
+Description=LLMSpaghetti Console Status Display
+After=network-online.target
+Wants=network-online.target
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/llmspaghetti/.venv/bin/python /opt/llmspaghetti/console/status.py
+Restart=always
+RestartSec=3
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=no
+
+[Install]
+WantedBy=multi-user.target

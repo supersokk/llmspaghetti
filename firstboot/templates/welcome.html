@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Welcome{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Welcome to LLMSpaghetti 👋</div>
+  <div class="card-desc">
+    This wizard will set up your local LLM gateway in about 2 minutes.
+    You'll be able to run local AI models and route cloud APIs through one endpoint.
+  </div>
+
+  {% if gpu.driver_stack != "none" and gpu.driver_stack != "unknown" %}
+  <div class="gpu-badge">
+    ✓ GPU detected · {{ gpu.driver_stack|upper }} · {{ gpu.total_vram_gb }}GB VRAM
+  </div>
+  {% else %}
+  <div class="info-box">
+    <strong>No GPU detected</strong> — LLMSpaghetti will run in CPU mode.
+    Smaller models will work fine. You can add a GPU later and re-run the driver installer.
+  </div>
+  {% endif %}
+
+  <div class="info-box">
+    After setup, everything is managed at <strong>http://{{ ip }}</strong> —
+    no command line needed.
+  </div>
+
+  <table class="kv" style="margin-bottom: 1.5rem">
+    <tr><td>What you'll get</td><td>Open WebUI · Ollama · LiteLLM API</td></tr>
+    <tr><td>Setup time</td><td>~2 minutes (model downloads are in the background)</td></tr>
+    <tr><td>Your server IP</td><td>{{ ip }}</td></tr>
+  </table>
+
+  <div class="btn-row">
+    <span></span>
+    <a href="/step/system" class="btn btn-primary">Get started →</a>
+  </div>
+</div>
+{% endblock %}

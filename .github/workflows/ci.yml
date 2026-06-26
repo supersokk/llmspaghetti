@@ -1,0 +1,134 @@
+name: LLMSpaghetti CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  router-eval:
+    name: Router eval (classifier accuracy)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run router eval — reference classifier
+        run: |
+          python3 eval/eval_router.py \
+            --max-misroute 0.10 \
+            --max-critical 0 \
+            --max-p95-ms 600 \
+            --verbose
+
+      - name: Run router eval — with community fixtures
+        run: |
+          python3 eval/eval_router.py \
+            --fixtures eval/fixtures_base.jsonl community/fixtures/contributed/ \
+            --max-misroute 0.10 \
+            --max-critical 0
+
+  pre-build-check:
+    name: Pre-build validation
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: cockpit-plugin/package-lock.json
+
+      - name: Install npm deps
+        working-directory: cockpit-plugin
+        run: npm ci
+
+      - name: Run pre-build check
+        run: bash test/pre-build-check.sh
+
+  shell-lint:
+    name: Shell script lint (shellcheck)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: |
+          find scripts/ iso/ -name "*.sh" | xargs shellcheck \
+            --severity=warning \
+            --exclude=SC1091,SC2034,SC2154
+          # SC1091 - don't follow sourced files
+          # SC2034 - unused variables (some are intentional exports)
+          # SC2154 - referenced but not assigned (set via source)
+
+  python-lint:
+    name: Python lint
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff
+        run: |
+          ruff check console/ firstboot/ test/ \
+            --ignore E501,E402,F401
+          # E501 - line too long (we're lenient)
+          # E402 - module import not at top (firstboot needs path manipulation)
+          # F401 - unused imports (some are re-exports)
+
+  build-plugin:
+    name: Build Cockpit plugin
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        working-directory: cockpit-plugin
+        run: npm ci
+
+      - name: Build
+        working-directory: cockpit-plugin
+        run: npm run build
+
+      - name: Check output exists
+        run: test -f cockpit-plugin/dist/llmspaghetti.js
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-plugin-dist
+          path: cockpit-plugin/dist/
+          retention-days: 7

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMSpaghetti Setup{% block title_suffix %}{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --accent:    #2f81f7;
+      --accent2:   #58a6ff;
+      --green:     #3fb950;
+      --yellow:    #d29922;
+      --red:       #f85149;
+      --text:      #e6edf3;
+      --text-dim:  #8b949e;
+      --radius:    10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 720px;
+    }
+
+    /* ── Logo ── */
+    .logo {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .logo-text {
+      font-size: 2.8rem;
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      background: linear-gradient(135deg, #2f81f7, #58a6ff, #79c0ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .logo-sub {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      margin-top: 0.3rem;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Steps indicator ── */
+    .steps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 2rem;
+    }
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .step-dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      transition: all 0.2s;
+    }
+    .step.active .step-dot  { border-color: var(--accent); background: var(--accent); color: white; }
+    .step.done .step-dot    { border-color: var(--green);  background: var(--green);  color: white; }
+    .step-label { font-size: 0.7rem; color: var(--text-dim); }
+    .step.active .step-label { color: var(--accent2); }
+    .step-line {
+      height: 2px;
+      width: 60px;
+      background: var(--border);
+      margin: 0;
+      margin-bottom: 1.2rem;
+    }
+    .step-line.done { background: var(--green); }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+    .card-desc {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+
+    /* ── Form elements ── */
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: var(--text);
+    }
+    .field { margin-bottom: 1.25rem; }
+    .hint  { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.3rem; }
+
+    input[type="text"],
+    input[type="password"],
+    textarea,
+    select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 0.6rem 0.9rem;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1.5rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--accent2); color: var(--accent2); }
+    .btn-green { background: var(--green); color: white; }
+
+    .btn-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 1.5rem;
+    }
+
+    /* ── Chips / model selector ── */
+    .chip-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .chip {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.8rem 1rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .chip input[type="checkbox"] { display: none; }
+    .chip:has(input:checked), .chip.selected {
+      border-color: var(--accent);
+      background: rgba(47, 129, 247, 0.1);
+    }
+    .chip-name  { font-weight: 600; font-size: 0.9rem; }
+    .chip-meta  { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.15rem; }
+    .chip-size  { color: var(--yellow); font-size: 0.78rem; font-weight: 600; }
+
+    /* ── Info box ── */
+    .info-box {
+      background: rgba(47, 129, 247, 0.08);
+      border: 1px solid rgba(47, 129, 247, 0.3);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      font-size: 0.88rem;
+      line-height: 1.5;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+    }
+    .info-box strong { color: var(--accent2); }
+
+    /* ── GPU badge ── */
+    .gpu-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(63, 185, 80, 0.1);
+      border: 1px solid rgba(63, 185, 80, 0.3);
+      border-radius: 20px;
+      padding: 0.25rem 0.8rem;
+      font-size: 0.8rem;
+      color: var(--green);
+      margin-bottom: 1rem;
+    }
+
+    /* ── URL display ── */
+    .url-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-family: monospace;
+      font-size: 0.95rem;
+      color: var(--accent2);
+      margin: 0.3rem 0;
+    }
+
+    /* ── Spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    /* ── Key/value table ── */
+    .kv { width: 100%; border-collapse: collapse; }
+    .kv td { padding: 0.4rem 0; font-size: 0.88rem; }
+    .kv td:first-child { color: var(--text-dim); width: 40%; }
+    .kv td:last-child  { color: var(--text); font-weight: 500; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="shell">
+    <div class="logo">
+      <div class="logo-text">LLMSpaghetti</div>
+      <div class="logo-sub">Local LLM Gateway OS · Setup Wizard</div>
+    </div>
+
+    {% block steps %}{% endblock %}
+
+    {% block content %}{% endblock %}
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

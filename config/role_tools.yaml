@@ -1,0 +1,30 @@
+# LLMSpaghetti — MCP tools enabled per routing role
+# Managed by the Routing → Tools panel.
+#
+# Available tools: filesystem, memory, fetch, brave-search, github, sqlite, postgres
+# A tool must be installed (Services → MCP Tools) before it can be used.
+#
+# Warning: adding tools to the "fast" role increases response latency.
+
+reasoning:
+  - memory
+  - fetch
+
+code:
+  - filesystem
+  - memory
+  - github
+
+fast: []
+
+general:
+  - memory
+  - fetch
+
+document:
+  - filesystem
+  - memory
+
+image: []
+
+none: []

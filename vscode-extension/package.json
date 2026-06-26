@@ -1,0 +1,69 @@
+{
+  "name": "llmspaghetti",
+  "displayName": "LLMSpaghetti",
+  "description": "Connect VS Code AI tools to your LLMSpaghetti local LLM gateway — one URL, every tool.",
+  "version": "0.1.0",
+  "publisher": "llmspaghetti",
+  "license": "GPL-3.0",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/llmspaghetti/llmspaghetti"
+  },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Other"],
+  "keywords": ["llm", "ai", "local", "ollama", "openai", "gateway", "routing"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "LLMSpaghetti",
+      "properties": {
+        "llmspaghetti.serverUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "URL of your LLMSpaghetti server. Example: `http://192.168.1.100`\n\nLeave empty to be prompted on first use."
+        },
+        "llmspaghetti.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show connection status in the status bar."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "llmspaghetti.setServerUrl",
+        "title": "LLMSpaghetti: Set Server URL"
+      },
+      {
+        "command": "llmspaghetti.checkConnection",
+        "title": "LLMSpaghetti: Check Connection"
+      },
+      {
+        "command": "llmspaghetti.openDashboard",
+        "title": "LLMSpaghetti: Open Dashboard"
+      },
+      {
+        "command": "llmspaghetti.showSetup",
+        "title": "LLMSpaghetti: Show Setup Guide"
+      },
+      {
+        "command": "llmspaghetti.copyApiUrl",
+        "title": "LLMSpaghetti: Copy API Base URL"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}

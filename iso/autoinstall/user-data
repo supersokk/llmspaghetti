@@ -1,0 +1,64 @@
+#cloud-config
+# =============================================================================
+# LLMOS Autoinstall Configuration
+# Ubuntu Subiquity unattended installer — boots, installs, runs LLMOS.
+# The user sees zero prompts. When it's done the machine reboots and shows
+# the LLMOS console screen with a URL to complete setup in a browser.
+#
+# Docs: https://ubuntu.com/server/docs/install/autoinstall-reference
+# =============================================================================
+autoinstall:
+  version: 1
+
+  # ── Locale and keyboard ────────────────────────────────────────────────────
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+
+  # ── Network ───────────────────────────────────────────────────────────────
+  network:
+    version: 2
+    ethernets:
+      any:
+        match:
+          name: "en*"
+        dhcp4: true
+        dhcp6: false
+
+  # ── Storage: LVM on largest disk, auto-sized ──────────────────────────────
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all   # use all available disk space
+
+  # ── Initial user account ──────────────────────────────────────────────────
+  identity:
+    hostname: llmos
+    username: llmos
+    # Default password: llmos (change immediately via web UI or SSH)
+    # Generated with: python3 -c "import crypt; print(crypt.crypt('llmos'))"
+    password: "$6$rounds=4096$saltsalt$WqMGGi2hOOhxlORDwW5NTB5IlL/C4IYCQfAX6dIZ8Pw9EsZX2N3WCCRi6t6BEmpxp05Dda3FXH4VJb7kAzno/"
+
+  # ── SSH ────────────────────────────────────────────────────────────────────
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  # ── Minimal package set (most are pre-baked in squashfs) ──────────────────
+  packages:
+    - openssh-server
+
+  # ── Late commands: run LLMOS bootstrap after OS install ───────────────────
+  late-commands:
+    # Run bootstrap script inside the installed system
+    - curtin in-target --target=/target -- bash /opt/llmos/scripts/bootstrap.sh
+
+    # Remove the autoinstall no-longer-needed flag
+    - "rm -f /target/etc/cloud/cloud.cfg.d/99-installer.cfg"
+
+    # Set GRUB timeout to 0 (instant boot, no menu)
+    - "sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /target/etc/default/grub"
+    - curtin in-target --target=/target -- update-grub
+
+  # ── Confirm reboots automatically ─────────────────────────────────────────
+  shutdown: reboot

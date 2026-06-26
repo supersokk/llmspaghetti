@@ -1,0 +1,31 @@
+{"id": "img-01", "message": "generate an image of a robot chef eating spaghetti", "expected": "image", "context": {}, "note": "clear image generation request"}
+{"id": "img-02", "message": "draw me a cyberpunk city at night", "expected": "image", "context": {}, "note": "draw keyword -> image"}
+{"id": "img-03", "message": "create a picture of a dog in a cradle", "expected": "image", "context": {}, "note": "picture of keyword -> image"}
+{"id": "img-04", "message": "can you make an illustration of a sunset", "expected": "image", "context": {}, "note": "illustration keyword -> image"}
+{"id": "img-05", "message": "I need a diagram of the solar system", "expected": "image", "context": {}, "note": "diagram keyword -> image"}
+{"id": "code-01", "message": "write a Python function that sorts a list", "expected": "code", "context": {}, "note": "write + Python -> code"}
+{"id": "code-02", "message": "debug this JavaScript — it keeps returning undefined", "expected": "code", "context": {}, "note": "debug keyword -> code"}
+{"id": "code-03", "message": "refactor this function to be more readable", "expected": "code", "context": {}, "note": "refactor keyword -> code"}
+{"id": "code-04", "message": "why is my async function not awaiting correctly", "expected": "code", "context": {"has_code_blocks": true}, "note": "code block context -> code even without explicit keyword"}
+{"id": "code-05", "message": "explain what this SQL query does", "expected": "code", "context": {"has_code_blocks": true}, "note": "SQL + code block -> code"}
+{"id": "reason-01", "message": "think through the architecture for a distributed caching system", "expected": "reasoning", "context": {}, "note": "think through -> reasoning"}
+{"id": "reason-02", "message": "plan how I would migrate a monolith to microservices", "expected": "reasoning", "context": {}, "note": "plan keyword -> reasoning"}
+{"id": "reason-03", "message": "why does CAP theorem matter for database design", "expected": "reasoning", "context": {}, "note": "deep why question -> reasoning"}
+{"id": "reason-04", "message": "help me reason through whether to use REST or GraphQL", "expected": "reasoning", "context": {}, "note": "reason keyword -> reasoning"}
+{"id": "fast-01", "message": "what is the capital of Norway", "expected": "fast", "context": {}, "note": "simple factual question -> fast"}
+{"id": "fast-02", "message": "quick what does async mean", "expected": "fast", "context": {}, "note": "quick keyword -> fast"}
+{"id": "fast-03", "message": "tldr what is docker", "expected": "fast", "context": {}, "note": "tldr keyword -> fast"}
+{"id": "fast-04", "message": "who invented the telephone", "expected": "fast", "context": {}, "note": "short factual -> fast"}
+{"id": "doc-01", "message": "summarise this document", "expected": "document", "context": {"has_file_attachment": true}, "note": "summarise + file -> document"}
+{"id": "doc-02", "message": "give me a quick summary of this 40-page contract", "expected": "document", "context": {"has_file_attachment": true, "token_count": 9000}, "note": "CRITICAL: quick + file must route to document not fast"}
+{"id": "doc-03", "message": "what are the key points in this PDF", "expected": "document", "context": {"has_file_attachment": true}, "note": "key points + file -> document"}
+{"id": "doc-04", "message": "read through this and tell me if anything is wrong", "expected": "document", "context": {"has_file_attachment": true}, "note": "file attachment overrides ambiguous message"}
+{"id": "doc-05", "message": "extract all the dates mentioned in this report", "expected": "document", "context": {"has_file_attachment": true, "token_count": 5000}, "note": "extract + file + high token count -> document"}
+{"id": "general-01", "message": "tell me a joke", "expected": "general", "context": {}, "note": "no clear role signal -> general"}
+{"id": "general-02", "message": "what do you think about pineapple on pizza", "expected": "general", "context": {}, "note": "opinion question -> general"}
+{"id": "general-03", "message": "hello", "expected": "general", "context": {}, "note": "greeting -> general"}
+{"id": "edge-01", "message": "I don't want to draw attention to this bug", "expected": "code", "context": {"has_code_blocks": true}, "note": "TRICKY: draw in sentence but code context wins"}
+{"id": "edge-02", "message": "quick overview of this PDF please", "expected": "document", "context": {"has_file_attachment": true}, "note": "TRICKY: quick keyword but file attachment wins"}
+{"id": "edge-03", "message": "write me a story about a programmer", "expected": "general", "context": {}, "note": "write keyword but creative task -> general not code"}
+{"id": "edge-04", "message": "plan my week", "expected": "general", "context": {}, "note": "plan keyword but not technical -> general not reasoning"}
+{"id": "edge-05", "message": "what does this code do", "expected": "code", "context": {"has_code_blocks": true}, "note": "short message but code block context -> code"}

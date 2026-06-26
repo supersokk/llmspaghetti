@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title_suffix %} — System{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">System Settings</div>
+  <div class="card-desc">Basic server configuration. These can be changed later from the management interface.</div>
+
+  <div class="field">
+    <label for="hostname">Hostname</label>
+    <input type="text" id="hostname" name="hostname" value="{{ hostname }}" placeholder="llmspaghetti">
+    <div class="hint">How this machine identifies itself on your network. e.g. <code>llmspaghetti</code> or <code>ai-server</code></div>
+  </div>
+
+  <div class="field">
+    <label for="timezone">Timezone</label>
+    <select id="timezone" name="timezone">
+      {% set zones = [
+        "UTC","US/Eastern","US/Central","US/Mountain","US/Pacific",
+        "Europe/London","Europe/Paris","Europe/Berlin","Europe/Amsterdam",
+        "Europe/Stockholm","Europe/Oslo","Asia/Tokyo","Asia/Shanghai",
+        "Asia/Kolkata","Australia/Sydney","America/Sao_Paulo"
+      ] %}
+      {% for tz in zones %}
+      <option value="{{ tz }}" {% if tz == timezone %}selected{% endif %}>{{ tz }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="ssh_key">SSH Public Key <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+    <textarea id="ssh_key" name="ssh_key" placeholder="ssh-ed25519 AAAA... you@machine"></textarea>
+    <div class="hint">Paste your public key here to enable passwordless SSH access. Leave blank to use password auth.</div>
+  </div>
+
+  <div class="btn-row">
+    <a href="/" class="btn btn-ghost">← Back</a>
+    <button class="btn btn-primary" onclick="saveAndContinue()">Next →</button>
+  </div>
+</div>
+
+<script>
+  // Store form values in sessionStorage so we can POST everything at once on the last step
+  function saveAndContinue() {
+    sessionStorage.setItem('hostname', document.getElementById('hostname').value);
+    sessionStorage.setItem('timezone', document.getElementById('timezone').value);
+    sessionStorage.setItem('ssh_key',  document.getElementById('ssh_key').value);
+    window.location.href = '/step/models';
+  }
+</script>
+{% endblock %}

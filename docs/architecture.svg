@@ -1,0 +1,226 @@
+<svg viewBox="0 0 900 620" xmlns="http://www.w3.org/2000/svg" font-family="'JetBrains Mono', 'Fira Code', monospace">
+  <rect width="900" height="620" fill="#0d1117"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#58a6ff" font-size="22" font-weight="bold">🍝 LLMSpaghetti — Architecture</text>
+  <text x="450" y="58" text-anchor="middle" fill="#8b949e" font-size="11">a tangled mess of AI routing that somehow works.</text>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 1: USERS / CLIENTS -->
+  <!-- ═══════════════════════════════════════════ -->
+  <text x="450" y="88" text-anchor="middle" fill="#8b949e" font-size="10" letter-spacing="2">CLIENTS</text>
+
+  <!-- VS Code -->
+  <rect x="30" y="96" width="110" height="44" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="85" y="114" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">VS Code</text>
+  <text x="85" y="130" text-anchor="middle" fill="#8b949e" font-size="9">Cursor · Continue</text>
+
+  <!-- Chat Browser -->
+  <rect x="160" y="96" width="110" height="44" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="215" y="114" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">Browser</text>
+  <text x="215" y="130" text-anchor="middle" fill="#8b949e" font-size="9">Open WebUI chat</text>
+
+  <!-- CLI -->
+  <rect x="290" y="96" width="110" height="44" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="345" y="114" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">Terminal</text>
+  <text x="345" y="130" text-anchor="middle" fill="#8b949e" font-size="9">Aider · shell</text>
+
+  <!-- Phone -->
+  <rect x="420" y="96" width="110" height="44" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="475" y="114" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">Phone</text>
+  <text x="475" y="130" text-anchor="middle" fill="#8b949e" font-size="9">any device on LAN</text>
+
+  <!-- Other apps -->
+  <rect x="550" y="96" width="110" height="44" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="605" y="114" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">Any App</text>
+  <text x="605" y="130" text-anchor="middle" fill="#8b949e" font-size="9">OpenAI-compatible</text>
+
+  <!-- n8n / automation -->
+  <rect x="680" y="96" width="110" height="44" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="735" y="114" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">Automation</text>
+  <text x="735" y="130" text-anchor="middle" fill="#8b949e" font-size="9">n8n · Flowise</text>
+
+  <!-- Arrows down from clients -->
+  <line x1="85"  y1="140" x2="85"  y2="168" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="215" y1="140" x2="215" y2="168" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="345" y1="140" x2="345" y2="168" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="475" y1="140" x2="475" y2="168" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="605" y1="140" x2="605" y2="168" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="735" y1="140" x2="735" y2="168" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 2: SINGLE ENDPOINT -->
+  <!-- ═══════════════════════════════════════════ -->
+  <rect x="60" y="168" width="760" height="48" rx="10" fill="#1f2937" stroke="#2f81f7" stroke-width="2"/>
+  <text x="440" y="189" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="bold">http://your-server/api/v1</text>
+  <text x="440" y="207" text-anchor="middle" fill="#8b949e" font-size="10">One endpoint. One API key. Never changes. All clients point here.</text>
+
+  <!-- Arrow down -->
+  <line x1="440" y1="216" x2="440" y2="244" stroke="#2f81f7" stroke-width="2" marker-end="url(#arr-blue)"/>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 3: LLMSPAGHETTI BOX -->
+  <!-- ═══════════════════════════════════════════ -->
+  <rect x="60" y="244" width="760" height="130" rx="10" fill="#161b22" stroke="#f0883e" stroke-width="2"/>
+  <text x="440" y="264" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="bold">🍝 LLMSpaghetti — Control Plane</text>
+
+  <!-- Caddy -->
+  <rect x="80"  y="272" width="100" height="38" rx="6" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="130" y="288" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="bold">Caddy</text>
+  <text x="130" y="302" text-anchor="middle" fill="#8b949e" font-size="8">Reverse proxy</text>
+
+  <!-- Arrow -->
+  <line x1="180" y1="291" x2="200" y2="291" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- LiteLLM Router -->
+  <rect x="200" y="272" width="130" height="38" rx="6" fill="#0d1117" stroke="#2f81f7" stroke-width="1.5"/>
+  <text x="265" y="288" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="bold">LiteLLM Router</text>
+  <text x="265" y="302" text-anchor="middle" fill="#8b949e" font-size="8">Routes · Fallbacks · Quotas</text>
+
+  <!-- Arrow -->
+  <line x1="330" y1="291" x2="350" y2="291" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Routing Rules -->
+  <rect x="350" y="272" width="150" height="38" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="425" y="287" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="bold">Routing Rules</text>
+  <text x="425" y="300" text-anchor="middle" fill="#8b949e" font-size="8">keyword · role · file type · token count</text>
+
+  <!-- Arrow -->
+  <line x1="500" y1="291" x2="520" y2="291" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Health Monitor -->
+  <rect x="520" y="272" width="120" height="38" rx="6" fill="#0d1117" stroke="#bc8cff" stroke-width="1"/>
+  <text x="580" y="288" text-anchor="middle" fill="#bc8cff" font-size="10" font-weight="bold">Health Monitor</text>
+  <text x="580" y="302" text-anchor="middle" fill="#8b949e" font-size="8">latency · uptime · auto-deprioritise</text>
+
+  <!-- Arrow -->
+  <line x1="640" y1="291" x2="660" y2="291" stroke="#30363d" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Quota Guard -->
+  <rect x="660" y="272" width="140" height="38" rx="6" fill="#0d1117" stroke="#d29922" stroke-width="1"/>
+  <text x="730" y="288" text-anchor="middle" fill="#d29922" font-size="10" font-weight="bold">Quota Guard</text>
+  <text x="730" y="302" text-anchor="middle" fill="#8b949e" font-size="8">spend limits · rate limits · alerts</text>
+
+  <!-- Model roles legend inside box -->
+  <text x="80"  y="334" fill="#8b949e" font-size="9">Roles: </text>
+  <text x="120" y="334" fill="#58a6ff"  font-size="9">🧠 reasoning</text>
+  <text x="210" y="334" fill="#3fb950"  font-size="9">💻 code</text>
+  <text x="270" y="334" fill="#d29922"  font-size="9">⚡ fast</text>
+  <text x="320" y="334" fill="#f85149"  font-size="9">🔒 private (no cloud)</text>
+  <text x="460" y="334" fill="#e6edf3"  font-size="9">🖼 image</text>
+  <text x="510" y="334" fill="#bc8cff"  font-size="9">📄 document</text>
+  <text x="600" y="334" fill="#8b949e"  font-size="9">🏠 general</text>
+  <text x="660" y="334" fill="#484f58"  font-size="9">🚫 none (direct only)</text>
+
+  <!-- Arrows down from control plane to backends -->
+  <!-- Cloud left -->
+  <line x1="200" y1="374" x2="150" y2="420" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-blue)"/>
+  <!-- Cloud mid-left -->
+  <line x1="310" y1="374" x2="310" y2="420" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-green)"/>
+  <!-- Cloud mid -->
+  <line x1="420" y1="374" x2="420" y2="420" stroke="#d29922" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-yellow)"/>
+  <!-- image -->
+  <line x1="530" y1="374" x2="530" y2="420" stroke="#e6edf3" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+  <!-- local -->
+  <line x1="680" y1="374" x2="750" y2="420" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-red)"/>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 4: BACKENDS -->
+  <!-- ═══════════════════════════════════════════ -->
+  <text x="450" y="415" text-anchor="middle" fill="#8b949e" font-size="10" letter-spacing="2">BACKENDS</text>
+
+  <!-- Claude -->
+  <rect x="30" y="422" width="115" height="52" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="88"  y="441" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="bold">Claude</text>
+  <text x="88"  y="455" text-anchor="middle" fill="#8b949e" font-size="9">Anthropic API</text>
+  <text x="88"  y="468" text-anchor="middle" fill="#8b949e" font-size="8">role: reasoning · code</text>
+
+  <!-- OpenAI -->
+  <rect x="160" y="422" width="115" height="52" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="218" y="441" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="bold">ChatGPT</text>
+  <text x="218" y="455" text-anchor="middle" fill="#8b949e" font-size="9">OpenAI API</text>
+  <text x="218" y="468" text-anchor="middle" fill="#8b949e" font-size="8">role: general · image</text>
+
+  <!-- Groq -->
+  <rect x="290" y="422" width="115" height="52" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+  <text x="348" y="441" text-anchor="middle" fill="#d29922" font-size="11" font-weight="bold">Groq</text>
+  <text x="348" y="455" text-anchor="middle" fill="#8b949e" font-size="9">Groq API</text>
+  <text x="348" y="468" text-anchor="middle" fill="#8b949e" font-size="8">role: fast ⚡</text>
+
+  <!-- DALL-E / Image -->
+  <rect x="420" y="422" width="115" height="52" rx="8" fill="#161b22" stroke="#e6edf3" stroke-width="1.5"/>
+  <text x="478" y="441" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="bold">DALL-E</text>
+  <text x="478" y="455" text-anchor="middle" fill="#8b949e" font-size="9">OpenAI Images API</text>
+  <text x="478" y="468" text-anchor="middle" fill="#8b949e" font-size="8">role: image 🖼</text>
+
+  <!-- Local Ollama -->
+  <rect x="550" y="422" width="115" height="52" rx="8" fill="#161b22" stroke="#f85149" stroke-width="2"/>
+  <text x="608" y="438" text-anchor="middle" fill="#f85149" font-size="11" font-weight="bold">Local Models</text>
+  <text x="608" y="452" text-anchor="middle" fill="#8b949e" font-size="9">Ollama on your hardware</text>
+  <text x="608" y="465" text-anchor="middle" fill="#f85149" font-size="8">🔒 never leaves machine</text>
+
+  <!-- ComfyUI -->
+  <rect x="680" y="422" width="115" height="52" rx="8" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+  <text x="738" y="441" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="bold">ComfyUI</text>
+  <text x="738" y="455" text-anchor="middle" fill="#8b949e" font-size="9">Local image gen</text>
+  <text x="738" y="468" text-anchor="middle" fill="#8b949e" font-size="8">role: image 🖼 (local)</text>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ROW 5: LOCAL MODELS DETAIL -->
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- Line from Local Models down -->
+  <line x1="608" y1="474" x2="608" y2="510" stroke="#f85149" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <line x1="608" y1="510" x2="200" y2="510" stroke="#f85149" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="608" y1="510" x2="800" y2="510" stroke="#f85149" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- Node 1 -->
+  <rect x="80" y="516" width="240" height="42" rx="6" fill="#0d1117" stroke="#f85149" stroke-width="1"/>
+  <text x="200" y="532" text-anchor="middle" fill="#f85149" font-size="10" font-weight="bold">Node 1 — GPU Server</text>
+  <text x="200" y="548" text-anchor="middle" fill="#8b949e" font-size="9">DeepSeek R1 🧠 · CodeLlama 💻 · Llama 3 🏠</text>
+
+  <!-- Node 2 -->
+  <rect x="340" y="516" width="240" height="42" rx="6" fill="#0d1117" stroke="#f85149" stroke-width="1"/>
+  <text x="460" y="532" text-anchor="middle" fill="#f85149" font-size="10" font-weight="bold">Node 2 — Old Laptop</text>
+  <text x="460" y="548" text-anchor="middle" fill="#8b949e" font-size="9">Phi-3 Mini ⚡ · Qwen 🔒 · no GPU needed</text>
+
+  <!-- Node N -->
+  <rect x="600" y="516" width="200" height="42" rx="6" fill="#0d1117" stroke="#484f58" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="700" y="532" text-anchor="middle" fill="#484f58" font-size="10" font-weight="bold">Node N — future</text>
+  <text x="700" y="548" text-anchor="middle" fill="#484f58" font-size="9">+ Add node with one command</text>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- BOTTOM LEGEND -->
+  <!-- ═══════════════════════════════════════════ -->
+  <line x1="30"  y1="595" x2="60"  y2="595" stroke="#2f81f7" stroke-width="2"/>
+  <text x="65"   y="599" fill="#8b949e" font-size="9">API call</text>
+  <line x1="130" y1="595" x2="160" y2="595" stroke="#f85149" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="165"  y="599" fill="#8b949e" font-size="9">Local only 🔒</text>
+  <line x1="250" y1="595" x2="280" y2="595" stroke="#484f58" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="285"  y="599" fill="#8b949e" font-size="9">Planned</text>
+  <rect x="360"  y="588" width="12" height="12" rx="2" fill="none" stroke="#d29922" stroke-width="1"/>
+  <text x="378"  y="599" fill="#8b949e" font-size="9">Quota enforced</text>
+  <rect x="470"  y="588" width="12" height="12" rx="2" fill="none" stroke="#bc8cff" stroke-width="1"/>
+  <text x="488"  y="599" fill="#8b949e" font-size="9">Optional service</text>
+  <text x="870"  y="599" text-anchor="end" fill="#484f58" font-size="9">v0.1.0</text>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ARROW MARKERS -->
+  <!-- ═══════════════════════════════════════════ -->
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#30363d"/>
+    </marker>
+    <marker id="arr-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#2f81f7"/>
+    </marker>
+    <marker id="arr-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#3fb950"/>
+    </marker>
+    <marker id="arr-yellow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#d29922"/>
+    </marker>
+    <marker id="arr-red" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#f85149"/>
+    </marker>
+  </defs>
+</svg>

@@ -1,0 +1,3 @@
+# Image routing fixtures — contributed by community
+# Format: {"message": "...", "expected": "image", "got": "...", "had_file": false, "note": "..."}
+# See README.md for full guide

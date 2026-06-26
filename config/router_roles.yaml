@@ -1,0 +1,22 @@
+# LLMSpaghetti Router — Role → Model mapping
+# Managed by the Routing panel. Edit with: spag config
+#
+# Model names must match model_name entries in litellm_config.yaml.
+# Set a role to "local-default" to use your default local Ollama model.
+# Set a role to null to exclude it from auto-routing (direct calls only).
+#
+# Routing modes:
+#   auto   — classify each message and pick the right model automatically
+#   single — bypass classification, send every message to single_model
+
+mode: "auto"
+single_model: null
+
+roles:
+  image:     "local-default"
+  code:      "local-default"
+  reasoning: "local-default"
+  fast:      "local-default"
+  document:  "local-default"
+  general:   "local-default"
+  none:      null

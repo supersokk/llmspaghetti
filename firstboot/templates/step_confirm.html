@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Confirm{% endblock %}
+
+{% block content %}
+<div class="card" id="confirm-card">
+  <div class="card-title">Ready to install</div>
+  <div class="card-desc">Review your settings and click Install. The process takes about 30 seconds.</div>
+
+  <table class="kv" id="summary-table" style="margin-bottom:1.5rem">
+    <tr><td>Hostname</td><td id="s-hostname">—</td></tr>
+    <tr><td>Timezone</td><td id="s-timezone">—</td></tr>
+    <tr><td>SSH key</td><td id="s-ssh">—</td></tr>
+    <tr><td>Anthropic</td><td id="s-anthropic">—</td></tr>
+    <tr><td>OpenAI</td><td id="s-openai">—</td></tr>
+    <tr><td>Groq</td><td id="s-groq">—</td></tr>
+    <tr><td>Starter models</td><td id="s-models">—</td></tr>
+  </table>
+
+  <div class="btn-row">
+    <a href="/step/apikeys" class="btn btn-ghost">← Back</a>
+    <button class="btn btn-green" id="install-btn" onclick="install()">Install LLMSpaghetti →</button>
+  </div>
+</div>
+
+<!-- Progress state (hidden initially) -->
+<div class="card" id="progress-card" style="display:none;text-align:center">
+  <div style="font-size:1.1rem;font-weight:700;margin-bottom:1rem">Installing LLMSpaghetti...</div>
+  <div class="spinner" style="margin: 0 auto 1rem"></div>
+  <div id="progress-msg" style="color:var(--text-dim);font-size:0.9rem">Starting services...</div>
+</div>
+
+<script>
+  // Populate summary from sessionStorage
+  const get = k => sessionStorage.getItem(k) || '';
+  const mask = v => v ? '••••••' + v.slice(-4) : 'not set';
+
+  document.getElementById('s-hostname').textContent  = get('hostname') || 'llmspaghetti';
+  document.getElementById('s-timezone').textContent  = get('timezone') || 'UTC';
+  document.getElementById('s-ssh').textContent       = get('ssh_key') ? 'provided' : 'not set';
+  document.getElementById('s-anthropic').textContent = mask(get('anthropic_key'));
+  document.getElementById('s-openai').textContent    = mask(get('openai_key'));
+  document.getElementById('s-groq').textContent      = mask(get('groq_key'));
+  document.getElementById('s-models').textContent    = get('models') || 'none selected';
+
+  async function install() {
+    document.getElementById('confirm-card').style.display  = 'none';
+    document.getElementById('progress-card').style.display = 'block';
+
+    const msg = document.getElementById('progress-msg');
+    const steps = [
+      'Applying system settings...',
+      'Writing LiteLLM configuration...',
+      'Starting Docker services...',
+      'Starting Ollama...',
+      'Queueing model downloads...',
+    ];
+    let i = 0;
+    const ticker = setInterval(() => {
+      if (i < steps.length) msg.textContent = steps[i++];
+    }, 1200);
+
+    const body = new URLSearchParams({
+      hostname:      get('hostname'),
+      timezone:      get('timezone'),
+      ssh_key:       get('ssh_key'),
+      anthropic_key: get('anthropic_key'),
+      openai_key:    get('openai_key'),
+      groq_key:      get('groq_key'),
+      models:        get('models'),
+    });
+
+    try {
+      const res  = await fetch('/setup/apply', { method: 'POST', body });
+      const data = await res.json();
+      clearInterval(ticker);
+      if (data.status === 'ok') {
+        window.location.href = '/done';
+      } else {
+        msg.textContent = 'Error: ' + JSON.stringify(data);
+      }
+    } catch (e) {
+      clearInterval(ticker);
+      msg.textContent = 'Network error — check server logs.';
+    }
+  }
+</script>
+{% endblock %}

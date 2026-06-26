@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title_suffix %} — API Keys{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Cloud API Keys <span style="color:var(--text-dim);font-weight:400;font-size:1rem">(optional)</span></div>
+  <div class="card-desc">
+    Add API keys for cloud providers to route them through your LLMSpaghetti endpoint.
+    Your IDE or CLI just talks to one URL and gets access to everything.
+    All keys are stored locally on your server — never sent anywhere else.
+  </div>
+
+  <div class="field">
+    <label>Anthropic (Claude)</label>
+    <input type="password" id="anthropic_key" placeholder="sk-ant-..." autocomplete="off">
+    <div class="hint">claude-sonnet-4-6 and claude-opus-4-6 will be available</div>
+  </div>
+
+  <div class="field">
+    <label>OpenAI</label>
+    <input type="password" id="openai_key" placeholder="sk-..." autocomplete="off">
+    <div class="hint">gpt-4o and gpt-4o-mini will be available</div>
+  </div>
+
+  <div class="field">
+    <label>Groq <span style="color:var(--text-dim);font-weight:400">(fast free-tier inference)</span></label>
+    <input type="password" id="groq_key" placeholder="gsk_..." autocomplete="off">
+    <div class="hint">Llama 3 70B and Mixtral at very high speed</div>
+  </div>
+
+  <div class="info-box">
+    You can add or change keys anytime from <strong>Settings → API Keys</strong> in the web interface.
+  </div>
+
+  <div class="btn-row">
+    <a href="/step/models" class="btn btn-ghost">← Back</a>
+    <button class="btn btn-primary" onclick="saveAndContinue()">Next →</button>
+  </div>
+</div>
+
+<script>
+  function saveAndContinue() {
+    sessionStorage.setItem('anthropic_key', document.getElementById('anthropic_key').value);
+    sessionStorage.setItem('openai_key',    document.getElementById('openai_key').value);
+    sessionStorage.setItem('groq_key',      document.getElementById('groq_key').value);
+    window.location.href = '/step/confirm';
+  }
+</script>
+{% endblock %}

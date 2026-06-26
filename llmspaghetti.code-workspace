@@ -1,0 +1,16 @@
+{
+  "folders": [
+    {
+      "name": "🍝 LLMSpaghetti",
+      "path": "."
+    }
+  ],
+  "settings": {},
+  "extensions": {
+    "recommendations": []
+  },
+  "launch": {
+    "version": "0.2.0",
+    "compounds": []
+  }
+}

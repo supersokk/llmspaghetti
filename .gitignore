@@ -1,0 +1,52 @@
+# =============================================================================
+# LLMOS .gitignore
+# =============================================================================
+
+# ── Node / Cockpit plugin build ───────────────────────────────────────────────
+cockpit-plugin/node_modules/
+cockpit-plugin/dist/
+
+# ── ISO build artifacts ───────────────────────────────────────────────────────
+iso/cache/          
+*.iso
+llmos-*.tar.gz
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ── Secrets / local config ────────────────────────────────────────────────────
+.env
+.env.local
+*.key
+config/master_key
+config/litellm_config.yaml.local
+
+# ── Runtime / install artifacts ───────────────────────────────────────────────
+/opt/
+*.log
+logs/
+
+# ── Routing flywheel — local data (never commit) ──────────────────────────────
+# overrides_local.jsonl contains user corrections — personal, stays on machine
+**/overrides_local.jsonl
+**/corrections_export.jsonl
+# fixtures_base.jsonl IS committed — it ships with the release
+# community/fixtures/contributed/*.jsonl ARE committed — they're contributions
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

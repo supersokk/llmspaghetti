@@ -1,0 +1,24 @@
+# LLMSpaghetti — Per-model request quotas
+# Counts reset daily at midnight UTC.
+# Set max_requests: null to disable limiting for a model.
+# warn_pct defaults to 80 (warn when 80% of quota is used).
+#
+# Managed by the Gateway → Quota panel, or edit directly here.
+# Router hot-reloads this file on every request.
+
+reset: "daily"
+
+models:
+  dall-e-3:
+    max_requests: 50
+    warn_pct: 80
+  gpt-4o:
+    max_requests: 100
+  gpt-4o-mini:
+    max_requests: 500
+  claude-sonnet:
+    max_requests: 200
+  claude-opus:
+    max_requests: 50
+  groq-llama3:
+    max_requests: 1000

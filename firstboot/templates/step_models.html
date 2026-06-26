@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Models{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Choose Starter Models</div>
+  <div class="card-desc">
+    These will download in the background after setup — you don't need to wait.
+    You can download more models anytime from the web interface.
+  </div>
+
+  {% if gpu.total_vram_gb > 0 %}
+  <div class="gpu-badge">✓ {{ gpu.total_vram_gb }}GB VRAM · recommending {{ gpu.model_tier }} tier models</div>
+  {% else %}
+  <div class="info-box">Running in CPU mode — smaller models will respond faster.</div>
+  {% endif %}
+
+  <div class="chip-grid" id="model-grid">
+    {% for model in suggestions %}
+    <label class="chip" id="chip-{{ loop.index }}">
+      <input type="checkbox" value="{{ model.id }}" class="model-check">
+      <div class="chip-name">{{ model.name }}</div>
+      <div class="chip-meta">{{ model.desc }}</div>
+      <div class="chip-size">{{ model.size }}</div>
+    </label>
+    {% endfor %}
+  </div>
+
+  <div class="hint" style="margin-top: 1rem">
+    Select as many as you like. Downloads happen in the background — LLMSpaghetti is usable immediately after setup.
+  </div>
+
+  <div class="btn-row">
+    <a href="/step/system" class="btn btn-ghost">← Back</a>
+    <button class="btn btn-primary" onclick="saveAndContinue()">Next →</button>
+  </div>
+</div>
+
+<script>
+  // Toggle selected style
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const cb = chip.querySelector('input');
+      cb.checked = !cb.checked;
+      chip.classList.toggle('selected', cb.checked);
+    });
+  });
+
+  function saveAndContinue() {
+    const selected = [...document.querySelectorAll('.model-check:checked')].map(c => c.value);
+    sessionStorage.setItem('models', selected.join(','));
+    window.location.href = '/step/apikeys';
+  }
+</script>
+{% endblock %}

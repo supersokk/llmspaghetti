@@ -1,0 +1,18 @@
+[Unit]
+Description=LLMSpaghetti Stack (Open WebUI + LiteLLM)
+Requires=docker.service ollama.service
+After=docker.service ollama.service network-online.target
+ConditionPathExists=/opt/llmspaghetti/.firstboot-complete
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=llmspaghetti
+WorkingDirectory=/opt/llmspaghetti
+ExecStart=/usr/bin/docker compose -f /opt/llmspaghetti/docker-compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f /opt/llmspaghetti/docker-compose.yml down
+StandardOutput=append:/opt/llmspaghetti/logs/stack.log
+StandardError=append:/opt/llmspaghetti/logs/stack.log
+
+[Install]
+WantedBy=multi-user.target
