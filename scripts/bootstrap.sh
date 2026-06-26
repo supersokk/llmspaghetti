@@ -81,6 +81,8 @@ if [[ ! -f "$INSTALL_DIR/config/mcp.json" ]]; then
 fi
 
 chown -R "$LLMSPAGHETTI_USER:$LLMSPAGHETTI_USER" "$INSTALL_DIR"
+# Ollama runs as its own user and needs write access to the models directory
+chown -R ollama:ollama "$INSTALL_DIR/models" 2>/dev/null || true
 success "Directories ready"
 
 # ── Copy project files ────────────────────────────────────────────────────────
