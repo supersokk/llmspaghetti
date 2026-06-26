@@ -161,7 +161,7 @@ function showSetupPanel(context: vscode.ExtensionContext, serverUrl: string): vo
     { enableScripts: false }
   );
 
-  const apiBase = `${serverUrl}/api/v1`;
+  const apiBase = `${serverUrl}/v1`;
 
   panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -267,7 +267,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("llmspaghetti.copyApiUrl", async () => {
       const url = await ensureUrl();
       if (!url) return;
-      const apiUrl = `${url}/api/v1`;
+      const apiUrl = `${url}/v1`;
       await vscode.env.clipboard.writeText(apiUrl);
       vscode.window.showInformationMessage(`Copied: ${apiUrl}`);
     }),

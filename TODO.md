@@ -123,6 +123,10 @@ Once routing works, give users control over it.
 
 ## 🏗 PHASE 6 — ISO + end-to-end testing
 
+- [ ] Start from minimal Ubuntu Server (no extras, no snap, no cloud-init bloat)
+      Goal: smallest possible base before bootstrap runs
+      Strip: snapd, cloud-init, landscape-client, motd-news, apport, unattended-upgrades
+- [ ] Minimum disk size requirement: document as 30GB (Docker images alone ~4GB, models vary)
 - [ ] Full boot → wizard → routing test in QEMU
 - [ ] "Dog in a cradle" image test from fresh install
 - [ ] Router-only mode (old laptop, no GPU, cloud APIs only)

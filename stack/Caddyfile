@@ -38,12 +38,13 @@
         }
     }
 
-    # ── LiteLLM API ─────────────────────────────────────────────────────────
-    handle /api/* {
-        uri strip_prefix /api
-        reverse_proxy localhost:4000 {
+    # ── External OpenAI-compatible API (via router) ──────────────────────────
+    # External tools (Cursor, Continue.dev, Aider, VS Code) point here.
+    # /v1/* goes to the router which classifies and routes to the right model.
+    # Using /v1/ avoids conflict with Open WebUI's own /api/ paths.
+    handle /v1/* {
+        reverse_proxy localhost:5000 {
             header_up Host {host}
-            # Allow large payloads for long context windows
             request_buffers 64MB
         }
     }

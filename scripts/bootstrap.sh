@@ -167,17 +167,13 @@ if ! command -v caddy &>/dev/null; then
   success "Caddy installed"
 fi
 
-mkdir -p /etc/caddy
+mkdir -p /etc/caddy /var/log/caddy
 cat > /etc/caddy/Caddyfile << 'EOF'
-# LLMSpaghetti Caddy config
-# Initially proxies to the first-boot wizard (port 3001).
-# After setup completes, start_stack() rewrites this to point to
-# Open WebUI (port 3000) and reloads Caddy automatically.
-
+# LLMSpaghetti Caddy config — initial (first-boot wizard on port 3001)
+# After setup, start_stack() rewrites this to proxy Open WebUI (port 3000).
 :80 {
-    handle /api/* {
-        uri strip_prefix /api
-        reverse_proxy localhost:4000
+    handle /v1/* {
+        reverse_proxy localhost:5000
     }
     handle {
         reverse_proxy localhost:3001
