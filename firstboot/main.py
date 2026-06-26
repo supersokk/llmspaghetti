@@ -155,7 +155,8 @@ def write_litellm_config(form_data):
         "  num_retries: 2",
         "",
         "general_settings:",
-        f'  master_key: "{master_key}"',
+        "  # No master_key — LiteLLM is internal-only (Docker network).",
+        "  # The router handles external authentication.",
     ]
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
