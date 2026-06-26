@@ -162,6 +162,7 @@ if ! command -v caddy &>/dev/null; then
   success "Caddy installed"
 fi
 
+mkdir -p /etc/caddy
 cat > /etc/caddy/Caddyfile << 'EOF'
 # LLMSpaghetti Caddy config
 # Port 80 serves the first-boot wizard until setup is complete,
