@@ -35,6 +35,7 @@ venv/
 *.key
 config/master_key
 config/api_keys.env
+config/litellm_config.yaml
 config/litellm_config.yaml.local
 
 # ── Runtime / install artifacts ───────────────────────────────────────────────

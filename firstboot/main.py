@@ -114,12 +114,12 @@ def write_litellm_config(form_data):
             "  - model_name: claude-sonnet",
             "    litellm_params:",
             "      model: anthropic/claude-sonnet-4-6",
-            f'      api_key: "{form_data["anthropic_key"]}"',
+            '      api_key: "${ANTHROPIC_API_KEY}"',
             "",
             "  - model_name: claude-opus",
             "    litellm_params:",
             "      model: anthropic/claude-opus-4-6",
-            f'      api_key: "{form_data["anthropic_key"]}"',
+            '      api_key: "${ANTHROPIC_API_KEY}"',
             "",
         ]
 
@@ -129,12 +129,12 @@ def write_litellm_config(form_data):
             "  - model_name: gpt-4o",
             "    litellm_params:",
             "      model: openai/gpt-4o",
-            f'      api_key: "{form_data["openai_key"]}"',
+            '      api_key: "${OPENAI_API_KEY}"',
             "",
             "  - model_name: gpt-4o-mini",
             "    litellm_params:",
             "      model: openai/gpt-4o-mini",
-            f'      api_key: "{form_data["openai_key"]}"',
+            '      api_key: "${OPENAI_API_KEY}"',
             "",
         ]
 
@@ -144,7 +144,7 @@ def write_litellm_config(form_data):
             "  - model_name: groq-llama3",
             "    litellm_params:",
             "      model: groq/llama3-70b-8192",
-            f'      api_key: "{form_data["groq_key"]}"',
+            '      api_key: "${GROQ_API_KEY}"',
             "",
         ]
 
