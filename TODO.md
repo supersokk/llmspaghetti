@@ -136,9 +136,17 @@ Once routing works, give users control over it.
 
 - [x] Full boot → wizard → routing test in VirtualBox ✅ 2026-06-27 (Ubuntu 26.04)
 - [x] CPU-only test ✅ (qwen2:0.5b, works but slow as expected)
-- [ ] Start from minimal Ubuntu Server (no extras, no snap, no cloud-init bloat)
-      Goal: smallest possible base before bootstrap runs
-      Strip: snapd, cloud-init, landscape-client, motd-news, apport, unattended-upgrades
+- [ ] 🙌 GOOD COMMUNITY TASK — Minimal OS base (touches no routing code)
+      Goal: smallest, leanest base before bootstrap runs. "Lean not bloated."
+      ⚠️ Build UP from `ubuntu-server-minimal` (allowlist — add only what
+         bootstrap needs). Do NOT strip DOWN from a full install (denylist) —
+         that silently breaks GPU drivers / networking on hardware you didn't test.
+      ⚠️ "Nothing hidden": the PR must DOCUMENT what's included/removed and why,
+         and show a boot + stack-run test on real hardware. A PR that just
+         deletes packages with no test is a liability, not a contribution.
+      Candidates to leave out: snapd, cloud-init, landscape-client, motd-news,
+         apport, unattended-upgrades.
+      Note: pays off with the ISO build below — not useful until we ship an image.
 - [x] Minimum disk size requirement: documented as 50GB ✅
       (Ubuntu ~9GB + Docker images ~5GB extract headroom + models — 20GB is NOT enough)
 - [ ] Full boot → wizard → routing test in QEMU (automated)

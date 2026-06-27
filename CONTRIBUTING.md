@@ -163,6 +163,27 @@ chore: bump Open WebUI to latest image
 
 ---
 
+## Good community contributions
+
+Well-bounded work that doesn't touch the in-house routing brain — ideal places
+to start:
+
+- **Minimal OS base** (Phase 6). Make the base image as lean as possible.
+  - ✅ Build **up** from `ubuntu-server-minimal` (add only what bootstrap needs).
+    Do **not** strip **down** from a full install — denylisting silently breaks
+    GPU drivers / networking on hardware you didn't test.
+  - ✅ "Nothing hidden": your PR must **document** what's in/out and why, and
+    show a **boot + stack-run test on real hardware**. A PR that just deletes
+    packages with no test is a liability, not a contribution.
+- **Hardware compatibility reports** (see below) — even "works on X" helps.
+- **Optional services** (Phase 5) — follow the three-file pattern above.
+- **Docs and translations** — if the install guide confuses you, that's a bug.
+
+Anything that *would have to be rebuilt for a different client* belongs in the
+router, not in a client plugin — see Project principles above.
+
+---
+
 ## Reporting issues
 
 Please include:
