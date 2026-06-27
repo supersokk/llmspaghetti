@@ -32,12 +32,20 @@ Honest state of the project, because the rest of this README describes the
 - First-boot setup wizard
 - Full silent routing chain: chat → router classifies → LiteLLM → model → reply
 - Routing is enforced — the chat UI cannot bypass the router
-- Local models via Ollama (tested CPU-only with `qwen2:0.5b`)
+- **Multi-model routing — proven.** With two local models loaded, the router
+  sends different messages to different models automatically: `write a python
+  function...` → coder model, `what is the capital of Norway` → fast model.
+- Local models via Ollama (tested CPU-only with `qwen2:0.5b` + `qwen2.5-coder:0.5b`)
 
 **🚧 Built but not yet proven:**
-- Multi-model routing (router picks *different* models per intent) — needs 2+ models loaded
 - Image routing, MCP tools, cloud-provider routing, Cockpit management tabs
 - VS Code extension
+- A visible "↳ answered by X" tag in the chat (next build — routing currently
+  shows only in the server log)
+
+> ⚠️ Note: running multiple models at once needs a GPU. A CPU-only box can route
+> fine but will struggle to *run* more than one small model — see the homelab
+> section below.
 
 **❌ Not built yet:**
 - The bootable ISO (the "flash to USB" path below is aspirational —
