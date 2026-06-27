@@ -20,7 +20,7 @@ First off — thank you. LLMSpaghetti is built by people who want better local A
 
 ### Get the code
 ```bash
-git clone https://github.com/YOUR_USERNAME/llmspaghetti.git
+git clone https://github.com/supersokk/llmspaghetti.git
 cd llmspaghetti
 ```
 
@@ -36,6 +36,24 @@ cd ..
 bash test/pre-build-check.sh
 ```
 All checks must pass. PRs with failures won't be merged.
+
+---
+
+## Project principles (read before you write code)
+
+Full list in [PROJECT-SCOPE.md](PROJECT-SCOPE.md#design-principles). The two
+that most affect *how* you build:
+
+- **Nothing hidden — show your work.** Every reply says which model answered.
+  Fallbacks are visible, never silent. A silent failure is a hidden failure;
+  hidden is the one thing we don't ship.
+- **One smart endpoint, thin clients.** All intelligence lives in the router,
+  behind the single `/v1` endpoint. **Put logic in the router, not in
+  client-specific glue** (Open WebUI plugins, etc.) — anything client-specific
+  has to be rebuilt when the client changes. If a feature would need rebuilding
+  for a different client, it belongs in the router.
+- **Use what we have, but smarter.** Orchestrate Ollama / LiteLLM / Open WebUI.
+  Don't reinvent them. We own the routing brain, not the commodities.
 
 ---
 

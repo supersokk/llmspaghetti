@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Direction / decisions (2026-06-27)
+- **Product reframed local-first.** Primary use case = homelab with multiple
+  local models, each assigned a role. Cloud APIs are the secondary path. README
+  + PROJECT-SCOPE reworded to lead with this.
+- **Client strategy decided.** One smart `/v1` endpoint; the router holds ALL
+  intelligence; clients (Open WebUI now, VS Code next, our own chat as end-game)
+  are thin, swappable consumers. Rule: logic in the router, never client glue.
+  See docs/PLANNED-client-strategy.md.
+- **Principle added: "Nothing hidden — show your work."** Provenance tag on every
+  reply, visible (never silent) fallbacks, inspectable routing log, GPL code.
+- **Principle sharpened: "Use what we have, but smarter."** Orchestrate
+  Ollama/LiteLLM/Open WebUI; never reinvent them. Own the routing brain only.
+- New planning docs: model-management, background-jobs, client-strategy.
+
 ### Added (2026-06-27 — first real VM deployment)
 - Confirmed full routing chain works end-to-end on Ubuntu 26.04 VM
 - Python venv-based install (replaces pip --break-system-packages; required for Ubuntu 26.04 / PEP 668)

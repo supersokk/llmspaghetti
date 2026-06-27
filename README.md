@@ -72,45 +72,45 @@ Routes to **Groq** → answer in 200ms → same window.
 
 ---
 
-## Got an old laptop gathering dust? 💻
+## The main event — your homelab, your models 🖥️
 
-That's all you need.
+This is what LLMSpaghetti is built for. You have a machine with a GPU. You load
+several local models and give each one a **job**:
 
-LLMSpaghetti running as a pure API router uses almost **no resources** — it's just passing traffic, not doing any AI itself. A 10 year old ThinkPad with 4GB RAM handles this perfectly.
+```
+Your homelab box (GPU)
+        ↓
+  coder model      → handles your code
+  reasoning model  → handles "think through this"
+  document model   → handles long files & summaries
+        ↓
+One chat window. LLMSpaghetti reads each message and
+sends it to the right local model — automatically.
+```
+
+Everything runs on your hardware. Nothing leaves your network unless you
+explicitly add a cloud key. **You set the roles. LLMSpaghetti routes to them.**
+This is the local-first, homelab vision — your models, your machine, your rules.
+
+---
+
+## No GPU? Run it as a pure router 💻
+
+The lighter, secondary path. LLMSpaghetti as a pure API router uses almost **no
+resources** — it's just passing traffic, doing no AI itself. A 10-year-old
+ThinkPad handles it fine.
 
 ```
 Old laptop (no GPU needed)
         ↓
-Install LLMSpaghetti
-        ↓
 Add your API keys  (Claude, ChatGPT, Groq — whatever you pay for)
         ↓
-One URL. One chat. Every AI you subscribe to.
-Every device on your network. Phone, tablet, work laptop. All of them.
+One URL. One chat. Every AI you subscribe to,
+on every device on your network.
 ```
 
-No new subscriptions. No GPU. No cloud service.
-Just a laptop, your existing API keys, and one place to manage everything.
-
----
-
-## Or go full local 🖥️
-
-Have a machine with a decent GPU? Run models completely locally.
-Nothing leaves your network. Ever. Not because we promise it — because there's nowhere for it to go.
-
-```
-RTX 3090 in your home server
-        ↓
-Llama 3 70B running locally
-        ↓
-Your code, your documents, your conversations
-        ↓
-Stays on your machine
-```
-
-Mix and match. Private stuff → local model. Quick tasks → Groq. Complex code → Claude.
-**You set the rules. LLMSpaghetti enforces them.**
+No GPU, no local models — just routing to the cloud services you already pay
+for. Useful, but it's the side path. The headline is local-first above.
 
 ---
 
@@ -228,7 +228,7 @@ Open that URL on any device. A 4-step wizard handles the rest.
 ### Path 2 — Install on existing Ubuntu server
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/llmspaghetti/main/scripts/bootstrap.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/supersokk/llmspaghetti/main/scripts/bootstrap.sh | sudo bash
 ```
 
 When done, open `http://your-server-ip` in a browser.
@@ -327,7 +327,7 @@ Checks everything and tells you what's wrong.
 ## Build it yourself (advanced)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/llmspaghetti.git
+git clone https://github.com/supersokk/llmspaghetti.git
 cd llmspaghetti
 
 # Install build tools
