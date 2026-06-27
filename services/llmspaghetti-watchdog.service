@@ -1,5 +1,5 @@
 [Unit]
-Description=LLMOS Service Watchdog
+Description=LLMSpaghetti Service Watchdog
 After=llmspaghetti.service
 ConditionPathExists=/opt/llmspaghetti/.firstboot-complete
 

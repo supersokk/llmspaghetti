@@ -232,12 +232,12 @@ def draw(tick):
 
     # ── Header ──────────────────────────────────────────────────────────────
     line()
-    line(f"{C_ACCENT}{BOLD}  ██╗     ██╗     ███╗   ███╗ ██████╗  ███████╗{RESET}")
-    line(f"{C_ACCENT}{BOLD}  ██║     ██║     ████╗ ████║██╔═══██╗██╔════╝{RESET}")
-    line(f"{C_ACCENT}{BOLD}  ██║     ██║     ██╔████╔██║██║   ██║███████╗{RESET}")
-    line(f"{C_ACCENT}{BOLD}  ██║     ██║     ██║╚██╔╝██║██║   ██║╚════██║{RESET}")
-    line(f"{C_ACCENT}{BOLD}  ███████╗███████╗██║ ╚═╝ ██║╚██████╔╝███████║{RESET}")
-    line(f"{C_GREY}{BOLD}  ╚══════╝╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝  v{VERSION}{RESET}")
+    line(f"{C_ACCENT}{BOLD}  ██╗     ██╗     ███╗   ███╗{RESET}")
+    line(f"{C_ACCENT}{BOLD}  ██║     ██║     ████╗ ████║{RESET}")
+    line(f"{C_ACCENT}{BOLD}  ██║     ██║     ██╔████╔██║{RESET}   {C_WHITE}{BOLD}Spaghetti{RESET}")
+    line(f"{C_ACCENT}{BOLD}  ██║     ██║     ██║╚██╔╝██║{RESET}   {C_GREY}a tangled mess of AI routing{RESET}")
+    line(f"{C_ACCENT}{BOLD}  ███████╗███████╗██║ ╚═╝ ██║{RESET}   {C_GREY}that somehow works{RESET}")
+    line(f"{C_GREY}{BOLD}  ╚══════╝╚══════╝╚═╝     ╚═╝{RESET}   {C_GREY}v{VERSION}{RESET}")
     line()
 
     spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[tick % 10]

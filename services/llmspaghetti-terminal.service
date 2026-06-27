@@ -8,7 +8,7 @@ Type=simple
 # Runs as llmspaghetti user — restricts access to that account by default.
 # Power users can sudo from this shell just like any other terminal.
 User=llmspaghetti
-Group=llmos
+Group=llmspaghetti
 
 # ttyd flags:
 #   -p 7681          listen port (proxied by Caddy at /terminal/)

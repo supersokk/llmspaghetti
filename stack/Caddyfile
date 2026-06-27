@@ -63,7 +63,7 @@
     # ── Logging ─────────────────────────────────────────────────────────────
     encode gzip
     log {
-        output file /var/log/caddy/llmos.log {
+        output file /var/log/caddy/llmspaghetti.log {
             roll_size     50MB
             roll_keep     5
             roll_keep_for 720h

@@ -1,9 +1,9 @@
 #cloud-config
 # =============================================================================
-# LLMOS Autoinstall Configuration
-# Ubuntu Subiquity unattended installer — boots, installs, runs LLMOS.
+# LLMSpaghetti Autoinstall Configuration
+# Ubuntu Subiquity unattended installer — boots, installs, runs LLMSpaghetti.
 # The user sees zero prompts. When it's done the machine reboots and shows
-# the LLMOS console screen with a URL to complete setup in a browser.
+# the LLMSpaghetti console screen with a URL to complete setup in a browser.
 #
 # Docs: https://ubuntu.com/server/docs/install/autoinstall-reference
 # =============================================================================
@@ -33,10 +33,13 @@ autoinstall:
 
   # ── Initial user account ──────────────────────────────────────────────────
   identity:
-    hostname: llmos
-    username: llmos
-    # Default password: llmos (change immediately via web UI or SSH)
-    # Generated with: python3 -c "import crypt; print(crypt.crypt('llmos'))"
+    hostname: llmspaghetti
+    username: llmspaghetti
+    # ⚠️ REGENERATE THIS HASH before building the ISO. The hash below is a
+    #    leftover for the old default and is NOT verified. Set a real one:
+    #      python3 -c "import crypt; print(crypt.crypt('YOUR_PASSWORD'))"
+    #    Docs say the default login is llmspaghetti/llmspaghetti — make the
+    #    hash match whatever you document, then tell the user to change it.
     password: "$6$rounds=4096$saltsalt$WqMGGi2hOOhxlORDwW5NTB5IlL/C4IYCQfAX6dIZ8Pw9EsZX2N3WCCRi6t6BEmpxp05Dda3FXH4VJb7kAzno/"
 
   # ── SSH ────────────────────────────────────────────────────────────────────
@@ -48,10 +51,11 @@ autoinstall:
   packages:
     - openssh-server
 
-  # ── Late commands: run LLMOS bootstrap after OS install ───────────────────
+  # ── Late commands: run LLMSpaghetti bootstrap after OS install ────────────
   late-commands:
-    # Run bootstrap script inside the installed system
-    - curtin in-target --target=/target -- bash /opt/llmos/scripts/bootstrap.sh
+    # Run bootstrap script inside the installed system.
+    # NOTE: the ISO build (iso/build.sh) must place the repo at this path.
+    - curtin in-target --target=/target -- bash /opt/llmspaghetti/scripts/bootstrap.sh
 
     # Remove the autoinstall no-longer-needed flag
     - "rm -f /target/etc/cloud/cloud.cfg.d/99-installer.cfg"
