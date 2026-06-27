@@ -10,19 +10,18 @@ Type=simple
 User=llmspaghetti
 Group=llmspaghetti
 
-# ttyd flags:
-#   -p 7681          listen port (proxied by Caddy at /terminal/)
-#   -i lo            localhost only — Caddy handles auth + TLS
+# ttyd flags (ttyd 1.7.x):
+#   --port 7681      listen port (proxied by Caddy at /terminal/)
+#   --interface lo   localhost only — Caddy handles auth + TLS
+#   --writable       allow clients to write (required for input)
 #   -t fontSize=15   default font size
 #   -t theme=...     dark theme matching LLMSpaghetti UI
-#   -W               allow clients to write (required for input)
-#   -R               reconnect on disconnect
 #   /bin/bash        the shell to launch
+# NOTE: no --reconnect flag — ttyd 1.7.x doesn't have it; it breaks arg parsing.
 ExecStart=/usr/bin/ttyd \
   --port 7681 \
   --interface lo \
   --writable \
-  --reconnect 10 \
   -t fontSize=15 \
   -t fontFamily="'JetBrains Mono','Fira Code','Cascadia Code',monospace" \
   -t theme='{"background":"#0d1117","foreground":"#e6edf3","cursor":"#58a6ff","black":"#484f58","red":"#f85149","green":"#3fb950","yellow":"#d29922","blue":"#58a6ff","magenta":"#bc8cff","cyan":"#39c5cf","white":"#b1bac4","brightBlack":"#6e7681","brightRed":"#ff7b72","brightGreen":"#56d364","brightYellow":"#e3b341","brightBlue":"#79c0ff","brightMagenta":"#d2a8ff","brightCyan":"#56d4dd","brightWhite":"#f0f6fc"}' \
