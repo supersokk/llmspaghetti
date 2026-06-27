@@ -27,7 +27,11 @@ install_ttyd() {
   # Try apt first (available in Ubuntu 22.04+)
   if apt-cache show ttyd &>/dev/null 2>&1; then
     apt-get install -y -qq ttyd
-    success "ttyd installed via apt"
+    # The apt package ships its own ttyd.service on port 7681, enabled by
+    # default. It would fight our llmspaghetti-terminal.service for the port.
+    # Disable it so only our managed unit runs.
+    systemctl disable --now ttyd.service 2>/dev/null || true
+    success "ttyd installed via apt (stock ttyd.service disabled)"
     return
   fi
 
