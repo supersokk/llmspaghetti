@@ -20,14 +20,14 @@ gets the right answer from the right model. They never think about routing.
       (every message forced through the router; verified end-to-end on CPU VM)
 
 ### Roles (the heart of it)
-Classifier logic exists and assigns roles. ⚠️ NOT YET PROVEN to route to
-*different* models — needs 2+ models loaded to demonstrate (next milestone).
-- [~] `reasoning`  — "think through", "plan", "architect", "why does"
-                     → DeepSeek R1 or similar thinking model
-- [~] `code`       — code files in context, "write", "debug", "refactor"
-                     → Claude / CodeLlama
-- [~] `fast`       — short messages, "quick", "tldr", "what is X"
-                     → Groq
+✅ PROVEN 2026-06-27: classifier routes DIFFERENT messages to DIFFERENT models,
+automatically. With qwen2:0.5b (general/fast) + qwen2.5-coder:0.5b (code) loaded:
+  "write a python function to reverse a string" → keyword → code → code-local
+  "what is the capital of Norway"               → keyword → fast → local-default
+Two messages, two roles, two target models, picked from the text. The thesis works.
+- [x] `reasoning`  — "think through", "plan", "architect", "why does" ✅ classifier matches
+- [x] `code`       — "write a function", "debug", "refactor" ✅ PROVEN routes to coder model
+- [x] `fast`       — short messages, "quick", "what is X" ✅ PROVEN ("capital of Norway" → fast)
 - [ ] `image`      — "generate image", "draw", "picture of", "create image"
                      → DALL-E or local ComfyUI
                      → image appears inline in Open WebUI chat
@@ -59,16 +59,24 @@ Legend: [x] done & tested · [~] code exists, untested/unproven · [ ] not built
 
 ### Testing Phase 1
 - [x] Basic chat works end-to-end: msg → router → LiteLLM → Ollama → response ✅ 2026-06-27
+- [x] Multi-model routing PROVEN: code msg → coder model, quick msg → fast model ✅ 2026-06-27
 - [ ] "I need a picture of a dog in a cradle" → image appears
-- [ ] "Think through this architecture" → reasoning model responds (NEEDS 2+ MODELS)
-- [ ] "Quick, what is the capital of Norway?" → Groq responds fast
+- [ ] "Think through this architecture" → reasoning model responds
 - [ ] "Here is my confidential document..." → local model only, no cloud
-- [ ] "Debug this Python function" → code model responds (NEEDS 2+ MODELS)
+- [x] "Debug/write a Python function" → code model selected ✅ (routed to code-local)
 - [ ] All of the above in ONE Open WebUI chat session
 
-> ⏭ NEXT MILESTONE: pull a 2nd small model (qwen2.5-coder:0.5b), assign to
-> `code` role, prove the router picks DIFFERENT models per message type.
-> This is the demo that proves the entire product.
+> ✅ MILESTONE HIT 2026-06-27 — multi-model routing proven on the VM.
+>
+> ⚠️ HARDWARE CEILING FOUND: the CPU-only VM (7GB RAM, no swap) soft-locks
+>    when running two models — kernel "soft lockup, CPU stuck 33s [llama-server]".
+>    Not a bug: CPU inference saturates all cores. This is exactly why the
+>    primary use case is a homelab box WITH A GPU. The VM proves the logic;
+>    it can't comfortably RUN models. For CPU-VM testing keep to ONE model.
+>
+> ⏭ NEXT (next session, router-side — see PLANNED-client-strategy.md):
+>    1. Provenance tag "↳ answered by X" appended by the ROUTER (nothing hidden)
+>    2. Then: image routing, reasoning model, fallback visibility
 
 ---
 

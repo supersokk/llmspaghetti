@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Proven (2026-06-27 — multi-model routing milestone)
+- **The core thesis works.** With two local models loaded (qwen2:0.5b +
+  qwen2.5-coder:0.5b), the router classifies each message and sends it to a
+  DIFFERENT model automatically:
+  - "write a python function to reverse a string" → `code` → code-local (coder)
+  - "what is the capital of Norway" → `fast` → local-default (qwen2:0.5b)
+  Verified in the router log on the VM. Routing is no longer theoretical.
+- Confirmed the 500 errors were only a missing model (coder not pulled), not a
+  routing fault — once pulled, the route resolved.
+- **Hardware ceiling documented:** a CPU-only VM (7GB RAM, no swap) soft-locks
+  running two models (kernel "soft lockup, CPU stuck [llama-server]"). Not a bug
+  — CPU inference saturates all cores. Reinforces local-first-with-a-GPU as the
+  primary target. CPU-VM testing should stay to one model.
+- Added OLLAMA_MAX_LOADED_MODELS guidance for low-RAM boxes (limits memory, not
+  CPU — doesn't cure the lockup, only a GPU/more cores does).
+
 ### Direction / decisions (2026-06-27)
 - **Product reframed local-first.** Primary use case = homelab with multiple
   local models, each assigned a role. Cloud APIs are the secondary path. README
