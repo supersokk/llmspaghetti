@@ -122,7 +122,7 @@ services:
     command: >
       --config /app/config.yaml
       --port 4000
-      --num_workers 2
+      --num_workers 1
     env_file:
       - /opt/llmspaghetti/config/api_keys.env
     environment:

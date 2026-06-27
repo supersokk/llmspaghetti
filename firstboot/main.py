@@ -80,8 +80,9 @@ def model_suggestions(tier):
             {"id": "gemma:2b",          "name": "Gemma 2B",            "size": "1.4GB","desc": "Very small and fast"},
         ],
         "cpu": [
-            {"id": "phi3:mini",         "name": "Phi-3 Mini",          "size": "2.3GB","desc": "Best for CPU inference"},
-            {"id": "gemma:2b",          "name": "Gemma 2B",            "size": "1.4GB","desc": "Fastest on CPU"},
+            {"id": "qwen2:0.5b",        "name": "Qwen2 0.5B",          "size": "0.4GB","desc": "Tiny & fast — great for testing on CPU"},
+            {"id": "phi3:mini",         "name": "Phi-3 Mini",          "size": "2.3GB","desc": "Best quality for CPU inference"},
+            {"id": "gemma:2b",          "name": "Gemma 2B",            "size": "1.4GB","desc": "Small and fast on CPU"},
             {"id": "llama3:8b",         "name": "Llama 3 8B (slow)",   "size": "4.7GB","desc": "Will be slow on CPU"},
         ],
     }
@@ -103,7 +104,7 @@ def write_litellm_config(form_data):
         "  # Local models via Ollama",
         "  - model_name: local-default",
         "    litellm_params:",
-        "      model: ollama/llama3",
+        f"      model: ollama/{form_data.get('local_model', 'qwen2:0.5b')}",
         "      api_base: http://host.docker.internal:11434",
         "",
     ]
@@ -321,6 +322,8 @@ async def apply_setup(
     if DONE_FLAG.exists():
         return JSONResponse({"status": "already_done"})
 
+    model_list = [m.strip() for m in models.split(",") if m.strip()]
+
     form_data = {
         "hostname":      hostname,
         "timezone":      timezone,
@@ -328,17 +331,21 @@ async def apply_setup(
         "anthropic_key": anthropic_key,
         "openai_key":    openai_key,
         "groq_key":      groq_key,
+        # The first model the user picked becomes the local-default.
+        # Falls back to a tiny CPU-friendly model if none selected.
+        "local_model":   model_list[0] if model_list else "qwen2:0.5b",
     }
 
     # Apply settings
     apply_system_settings(form_data)
     master_key = write_litellm_config(form_data)
     write_router_roles_config(form_data)
-    start_stack()
 
-    model_list = [m.strip() for m in models.split(",") if m.strip()]
+    # Pull models BEFORE starting the stack so local-default exists when
+    # LiteLLM first tries to reach it.
     if model_list:
         pull_models_background(model_list)
+    start_stack()
 
     # Mark first boot complete — wizard won't run again
     DONE_FLAG.touch()
