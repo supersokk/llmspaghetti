@@ -81,9 +81,12 @@ services:
     volumes:
       - openwebui_data:/app/backend/data
     environment:
-      # Point at Ollama on the host
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      # Route through the classifier — router forwards to LiteLLM
+      # CRITICAL: Ollama's native API is disabled so EVERY message goes
+      # through the router. If Open WebUI talked to Ollama directly, routing
+      # would be bypassed entirely — that breaks the whole product.
+      # Model management lives in Cockpit (Models tab) and the `spag` CLI.
+      - ENABLE_OLLAMA_API=false
+      # The only model source: the router, which classifies and forwards.
       - OPENAI_API_BASE_URL=http://router:5000/v1
       - OPENAI_API_KEY=${LITELLM_MASTER_KEY:-sk-llmspaghetti}
       # Branding
