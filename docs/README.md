@@ -19,6 +19,8 @@ Boot the ISO → it installs silently → open a browser → done.
 
 - [PLANNED-model-management.md](PLANNED-model-management.md) — where model
   management lives now that Open WebUI's Ollama API is disabled ⚠️ open question
+- [PLANNED-background-jobs.md](PLANNED-background-jobs.md) — local GPU does
+  grunt work in the background while you use cloud interactively ⚠️ Phase 2+
 - [PLANNED-private-role.md](PLANNED-private-role.md) — the no-cloud "private" role
 - [PLANNED-router-model.md](PLANNED-router-model.md) — community-trained classifier
 - [PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md) — how
