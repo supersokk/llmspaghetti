@@ -8,10 +8,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-06-27 — first real VM deployment)
+- Confirmed full routing chain works end-to-end on Ubuntu 26.04 VM
+- Python venv-based install (replaces pip --break-system-packages; required for Ubuntu 26.04 / PEP 668)
+- `ENABLE_OLLAMA_API=false` on Open WebUI so every message is forced through the router
+- MCP tool injection + tool-call resolution loop in router (from prior session)
+- VS Code extension, Settings tab API-key management (from prior session)
+
+### Changed (2026-06-27)
+- External OpenAI-compatible API moved from `/api/v1` to `/v1` (avoids clash with Open WebUI's own `/api/`)
+- LiteLLM runs with 1 worker (was 2) and no master_key (it's internal-only now)
+- First-boot wizard runs on port 3001; Caddy auto-switches to Open WebUI (3000) once healthy
+- `local-default` model now follows the user's first model pick (was hardcoded to llama3)
+- Documented minimum disk as 50GB (20GB is insufficient for Docker image extraction)
+
+### Fixed (2026-06-27)
+- Bootstrap: create /etc/caddy, copy router/eval/config dirs, chown Ollama models dir, create api_keys.env/mcp.json
+- Security: litellm_config.yaml now uses env-var references for keys; added to .gitignore
+- Stack startup no longer blocks the wizard during `docker compose pull`
+
 ### Planned
+- Multi-model routing demo (router picks different models per intent)
+- Model management UI now that Open WebUI's Ollama API is disabled (see docs/PLANNED-model-management.md)
 - Models tab: Load / Stop / Eject / Delete / per-model config panel
 - Services tab: tap-to-install ComfyUI, SearXNG, Whisper, Qdrant, n8n, Flowise
 - Runtime switcher: llama.cpp, vLLM as optional backends
+- Bootable ISO (currently install is git clone + bootstrap.sh only)
 - Intel Arc GPU support
 - OTA update system
 - ARM64 / Raspberry Pi 5 port

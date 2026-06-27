@@ -22,6 +22,32 @@
 
 ---
 
+## 📍 Current status (2026-06-27)
+
+Honest state of the project, because the rest of this README describes the
+*vision* and not everything is built yet.
+
+**✅ Works today (tested on an Ubuntu 26.04 VM):**
+- Install from `git clone` + `scripts/bootstrap.sh`
+- First-boot setup wizard
+- Full silent routing chain: chat → router classifies → LiteLLM → model → reply
+- Routing is enforced — the chat UI cannot bypass the router
+- Local models via Ollama (tested CPU-only with `qwen2:0.5b`)
+
+**🚧 Built but not yet proven:**
+- Multi-model routing (router picks *different* models per intent) — needs 2+ models loaded
+- Image routing, MCP tools, cloud-provider routing, Cockpit management tabs
+- VS Code extension
+
+**❌ Not built yet:**
+- The bootable ISO (the "flash to USB" path below is aspirational —
+  use the `git clone` install path for now)
+- Multi-node, AMD ROCm / multi-GPU verification
+
+See [TODO.md](TODO.md) for the full checklist.
+
+---
+
 ## The "holy shit" moment 🤯
 
 You're in **one chat window**. You type:
@@ -95,7 +121,7 @@ One endpoint that routes to everything:
 ```
 Your IDE / Chat / CLI
         ↓
-http://your-server/api/v1   ← one URL, never changes
+http://your-server/v1   ← one URL, never changes
         ↓
   LLMSpaghetti Router
         ├── "generate image"     → ChatGPT / DALL-E    🖼
@@ -133,7 +159,7 @@ Cursor, VS Code, Aider, any OpenAI-compatible tool — they all just work.
 |---|---|
 | CPU | Any 64-bit from ~2012 onwards |
 | RAM | 4GB |
-| Disk | 20GB |
+| Disk | 50GB (Docker images + OS; 20GB is not enough) |
 | GPU | Not needed |
 | Network | Ethernet recommended |
 
@@ -245,7 +271,7 @@ Open WebUI → Models → Pull. Suggestions based on your GPU VRAM appear automa
 | 24GB+ | Llama 3 70B |
 | 12GB | Mistral 7B + CodeLlama 13B simultaneously |
 | 8GB | Llama 3 8B |
-| No GPU | Phi-3 Mini (CPU, slower but works) |
+| No GPU | Phi-3 Mini (CPU, slower but works) — or qwen2:0.5b for fast testing |
 
 ---
 
@@ -254,7 +280,7 @@ Open WebUI → Models → Pull. Suggestions based on your GPU VRAM appear automa
 Any OpenAI-compatible tool (Cline, Cursor, Continue, Aider, anything) connects with two fields:
 
 ```
-Base URL:  http://your-server-ip/api/v1
+Base URL:  http://your-server-ip/v1
 API Key:   shown in setup wizard  (or: spag key)
 ```
 

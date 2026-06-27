@@ -9,9 +9,20 @@ Boot the ISO → it installs silently → open a browser → done.
 |---|---|---|
 | **Open WebUI** | Chat interface, model manager | `http://your-server` |
 | **Ollama** | Local model runner (llama3, mistral, etc.) | internal |
-| **LiteLLM** | Unified API gateway (local + cloud) | `http://your-server/api/v1` |
+| **LiteLLM** | Unified API gateway (local + cloud) | `http://your-server/v1` |
 | **Cockpit** | Server management web UI | `http://your-server:9090` |
 | **Caddy** | Reverse proxy, auto-HTTPS | internal |
+
+---
+
+## Design / planning docs (things to think through before building)
+
+- [PLANNED-model-management.md](PLANNED-model-management.md) — where model
+  management lives now that Open WebUI's Ollama API is disabled ⚠️ open question
+- [PLANNED-private-role.md](PLANNED-private-role.md) — the no-cloud "private" role
+- [PLANNED-router-model.md](PLANNED-router-model.md) — community-trained classifier
+- [PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md) — how
+  routing corrections improve the classifier over time
 
 ---
 
@@ -106,7 +117,7 @@ sudo dd if=llmspaghetti-YYYYMMDD.iso of=/dev/sdX bs=4M status=progress
    ...
    
    Web Interface    http://192.168.1.42
-   LLM API         http://192.168.1.42/api/v1
+   LLM API         http://192.168.1.42/v1
    Management      http://192.168.1.42:9090
 
 6. Open browser → wizard guides you through:
@@ -148,13 +159,13 @@ spag reset-firstboot       # Re-run the setup wizard
 Once setup is done, point any OpenAI-compatible tool at:
 
 ```
-Base URL:  http://your-server/api/v1
+Base URL:  http://your-server/v1
 API Key:   (shown in setup wizard and via `spag key`)
 ```
 
 ### Cursor
 `Settings → Models → OpenAI API Key` → enter your key  
-`Settings → Models → Override URL` → `http://your-server/api/v1`
+`Settings → Models → Override URL` → `http://your-server/v1`
 
 ### Continue.dev (VS Code / JetBrains)
 ```json
@@ -163,7 +174,7 @@ API Key:   (shown in setup wizard and via `spag key`)
     "title": "LLMSpaghetti",
     "provider": "openai",
     "model": "llama3",
-    "apiBase": "http://your-server/api/v1",
+    "apiBase": "http://your-server/v1",
     "apiKey": "your-master-key"
   }]
 }
@@ -171,14 +182,14 @@ API Key:   (shown in setup wizard and via `spag key`)
 
 ### Aider
 ```bash
-aider --openai-api-base http://your-server/api/v1 \
+aider --openai-api-base http://your-server/v1 \
       --openai-api-key your-master-key \
       --model llama3
 ```
 
 ### Shell / curl
 ```bash
-curl http://your-server/api/v1/chat/completions \
+curl http://your-server/v1/chat/completions \
   -H "Authorization: Bearer your-master-key" \
   -H "Content-Type: application/json" \
   -d '{"model":"llama3","messages":[{"role":"user","content":"Hello"}]}'

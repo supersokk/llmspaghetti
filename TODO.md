@@ -11,30 +11,36 @@ Everything must work here first. User opens Open WebUI, talks naturally,
 gets the right answer from the right model. They never think about routing.
 
 ### Intent detection + silent routing
-- [ ] Routing middleware sits between Open WebUI and LiteLLM
-- [ ] Reads every incoming message
-- [ ] Detects intent from message content
-- [ ] Selects correct model role silently
-- [ ] User never sees the mechanics — just gets the right answer
+- [x] Routing middleware sits between Open WebUI and LiteLLM ✅ TESTED 2026-06-27
+- [x] Reads every incoming message ✅
+- [x] Detects intent from message content ✅ (keyword classifier)
+- [x] Selects correct model role silently ✅
+- [x] User never sees the mechanics — just gets the right answer ✅
+- [x] Ollama native API disabled in Open WebUI — routing CANNOT be bypassed ✅
+      (every message forced through the router; verified end-to-end on CPU VM)
 
 ### Roles (the heart of it)
-- [ ] `reasoning`  — "think through", "plan", "architect", "why does"
+Classifier logic exists and assigns roles. ⚠️ NOT YET PROVEN to route to
+*different* models — needs 2+ models loaded to demonstrate (next milestone).
+- [~] `reasoning`  — "think through", "plan", "architect", "why does"
                      → DeepSeek R1 or similar thinking model
-- [ ] `code`       — code files in context, "write", "debug", "refactor"
+- [~] `code`       — code files in context, "write", "debug", "refactor"
                      → Claude / CodeLlama
-- [ ] `fast`       — short messages, "quick", "tldr", "what is X"
+- [~] `fast`       — short messages, "quick", "tldr", "what is X"
                      → Groq
 - [ ] `image`      — "generate image", "draw", "picture of", "create image"
                      → DALL-E or local ComfyUI
                      → image appears inline in Open WebUI chat
 - [ ] `private`    — ⏸ PLANNED. Needs serious design thinking before building.
                      See PLANNED-private-role.md. Do not implement until thought through.
-- [ ] `document`   — "summarise", "read this", long context requests
+- [~] `document`   — "summarise", "read this", long context requests
                      → model with large context window
-- [ ] `general`    — everything else, catch-all fallback
+- [x] `general`    — everything else, catch-all fallback ✅ TESTED (fell back correctly)
                      → default local model
-- [ ] `none`       — model is running but router never touches it
+- [~] `none`       — model is running but router never touches it
                      → direct calls only, excluded from auto-routing 🚫
+
+Legend: [x] done & tested · [~] code exists, untested/unproven · [ ] not built
 
 ### Image routing (the killer feature)
 - [ ] Detect image requests in routing middleware
@@ -52,12 +58,17 @@ gets the right answer from the right model. They never think about routing.
 - [ ] VRAM budget tracked so you know what fits
 
 ### Testing Phase 1
+- [x] Basic chat works end-to-end: msg → router → LiteLLM → Ollama → response ✅ 2026-06-27
 - [ ] "I need a picture of a dog in a cradle" → image appears
-- [ ] "Think through this architecture" → reasoning model responds
+- [ ] "Think through this architecture" → reasoning model responds (NEEDS 2+ MODELS)
 - [ ] "Quick, what is the capital of Norway?" → Groq responds fast
 - [ ] "Here is my confidential document..." → local model only, no cloud
-- [ ] "Debug this Python function" → code model responds
+- [ ] "Debug this Python function" → code model responds (NEEDS 2+ MODELS)
 - [ ] All of the above in ONE Open WebUI chat session
+
+> ⏭ NEXT MILESTONE: pull a 2nd small model (qwen2.5-coder:0.5b), assign to
+> `code` role, prove the router picks DIFFERENT models per message type.
+> This is the demo that proves the entire product.
 
 ---
 
@@ -123,16 +134,19 @@ Once routing works, give users control over it.
 
 ## 🏗 PHASE 6 — ISO + end-to-end testing
 
+- [x] Full boot → wizard → routing test in VirtualBox ✅ 2026-06-27 (Ubuntu 26.04)
+- [x] CPU-only test ✅ (qwen2:0.5b, works but slow as expected)
 - [ ] Start from minimal Ubuntu Server (no extras, no snap, no cloud-init bloat)
       Goal: smallest possible base before bootstrap runs
       Strip: snapd, cloud-init, landscape-client, motd-news, apport, unattended-upgrades
-- [ ] Minimum disk size requirement: document as 30GB (Docker images alone ~4GB, models vary)
-- [ ] Full boot → wizard → routing test in QEMU
+- [x] Minimum disk size requirement: documented as 50GB ✅
+      (Ubuntu ~9GB + Docker images ~5GB extract headroom + models — 20GB is NOT enough)
+- [ ] Full boot → wizard → routing test in QEMU (automated)
 - [ ] "Dog in a cradle" image test from fresh install
 - [ ] Router-only mode (old laptop, no GPU, cloud APIs only)
 - [ ] AMD ROCm test
-- [ ] CPU-only test
 - [ ] Multi-GPU test
+- [ ] Bootstrap should add a swap file — test VM had 0 swap, risky under memory pressure
 
 ---
 
@@ -191,7 +205,31 @@ how to paste a URL — we don't need to document that.
 
 ---
 
-## ✅ Done (this session)
+## ✅ Done (first VM test session — 2026-06-27)
+
+**First real end-to-end deployment. Went from source → running routing appliance.**
+
+- [x] Pushed project to GitHub (supersokk/llmspaghetti, private)
+- [x] Installed on Ubuntu 26.04 VM in VirtualBox via bootstrap.sh
+- [x] **Proved full routing chain works**: Open WebUI → Router → LiteLLM → Ollama → response
+- [x] Switched to Python venv (Ubuntu 26.04 PEP 668 — no more --break-system-packages)
+- [x] Bootstrap bugfixes found by actually running it:
+      - mkdir -p /etc/caddy before writing Caddyfile
+      - copy router/ eval/ config/ dirs to INSTALL_DIR (were missing → router crashed)
+      - chown models dir to ollama user + chmod 755 parent (Ollama couldn't write)
+      - create api_keys.env + mcp.json + data/webui on first run
+      - fixed watchdog filename (spag-watchdog.sh)
+- [x] Firstboot wizard: port 80→3001 (Caddy conflict), async stack startup (no more hang),
+      Caddy auto-switches 3001→3000 when Open WebUI healthy
+- [x] Fixed root bug: local-default hardcoded to ollama/llama3 regardless of user pick
+      → now uses first selected model
+- [x] Caddy /api/* conflicted with Open WebUI's own API → moved external API to /v1/*
+- [x] Disabled Ollama native API in Open WebUI → routing cannot be bypassed
+- [x] LiteLLM: removed master_key (internal-only), 1 worker (was 2, memory pressure)
+- [x] Security: env-var refs in litellm_config.yaml, added to .gitignore (key was hardcoded)
+- [x] Documented 50GB min disk, qwen2:0.5b as CPU test model
+
+## ✅ Done (MCP / VS Code / Settings session)
 
 - [x] Runtimes in Services tab — llama.cpp server + vLLM (Docker, tap-to-install)
 - [x] MCP Tools in Services tab — 7 servers (filesystem, memory, fetch, brave, github, sqlite, postgres), npm-based install, writes mcp.json
