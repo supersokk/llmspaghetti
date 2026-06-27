@@ -244,7 +244,7 @@ def draw(tick):
 
     # ── Access URLs ──────────────────────────────────────────────────────────
     line(f"  {C_WHITE}{BOLD}Web Interface{RESET}   {C_CYAN}http://{ip}{RESET}           {C_GREY}{now}{RESET}")
-    line(f"  {C_WHITE}{BOLD}LLM API{RESET}         {C_CYAN}http://{ip}/api/v1{RESET}")
+    line(f"  {C_WHITE}{BOLD}LLM API{RESET}         {C_CYAN}http://{ip}/v1{RESET}")
     line(f"  {C_WHITE}{BOLD}Management{RESET}      {C_CYAN}http://{ip}:9090{RESET}  {C_GREY}(Cockpit){RESET}")
     line()
     line(f"  {C_GREY}{'─' * (W - 4)}{RESET}")
@@ -296,17 +296,19 @@ def draw(tick):
     line()
 
     # ── System stats ─────────────────────────────────────────────────────────
-    sys = sys_stats()
+    # NOTE: do not name this `sys` — it shadows the `sys` module and breaks
+    # sys.stdout.write() at the end of draw().
+    stats = sys_stats()
     line(f"  {C_WHITE}{BOLD}SYSTEM{RESET}")
     line()
 
-    cpu_bar  = bar(sys["cpu"], 100, 24)
-    ram_bar  = bar(sys["ram_used"], sys["ram_total"], 24)
-    disk_bar = bar(sys["disk_used"], sys["disk_total"], 24)
+    cpu_bar  = bar(stats["cpu"], 100, 24)
+    ram_bar  = bar(stats["ram_used"], stats["ram_total"], 24)
+    disk_bar = bar(stats["disk_used"], stats["disk_total"], 24)
 
-    line(f"  CPU         {cpu_bar}  {C_WHITE}{sys['cpu']:5.1f}%{RESET}")
-    line(f"  RAM         {ram_bar}  {C_WHITE}{sys['ram_used']}/{sys['ram_total']}GB{RESET}")
-    line(f"  Disk        {disk_bar}  {C_WHITE}{sys['disk_used']}/{sys['disk_total']}GB{RESET}")
+    line(f"  CPU         {cpu_bar}  {C_WHITE}{stats['cpu']:5.1f}%{RESET}")
+    line(f"  RAM         {ram_bar}  {C_WHITE}{stats['ram_used']}/{stats['ram_total']}GB{RESET}")
+    line(f"  Disk        {disk_bar}  {C_WHITE}{stats['disk_used']}/{stats['disk_total']}GB{RESET}")
     line()
     line(f"  {C_GREY}{'─' * (W - 4)}{RESET}")
     line()
