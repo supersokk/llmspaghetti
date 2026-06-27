@@ -21,6 +21,8 @@ Boot the ISO → it installs silently → open a browser → done.
   management lives now that Open WebUI's Ollama API is disabled ⚠️ open question
 - [PLANNED-background-jobs.md](PLANNED-background-jobs.md) — local GPU does
   grunt work in the background while you use cloud interactively ⚠️ Phase 2+
+- [PLANNED-client-strategy.md](PLANNED-client-strategy.md) — one smart endpoint,
+  thin clients; our own chat is the end-game (keep logic in the router) 🧭
 - [PLANNED-private-role.md](PLANNED-private-role.md) — the no-cloud "private" role
 - [PLANNED-router-model.md](PLANNED-router-model.md) — community-trained classifier
 - [PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md) — how

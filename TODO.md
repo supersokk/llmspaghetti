@@ -196,6 +196,25 @@ how to paste a URL — we don't need to document that.
 
 ---
 
+## 🪟 PHASE ∞ — Our own chat (END-GAME)
+
+Long-term, community-driven. **Not a near-term task.** See
+[docs/PLANNED-client-strategy.md](docs/PLANNED-client-strategy.md).
+
+The end-game is owning the chat window for full control/freedom — background
+jobs, rich provenance, auto/single switch, anything Open WebUI can't host.
+Viable ONLY because the router/backend does all the smarts behind one `/v1`
+endpoint, so the client is thin and swappable. Justified by control, not by
+routing (routing is already backend).
+
+- [ ] Revisit ONLY after multi-model routing + backend provenance tag are proven
+- [ ] Rule until then: logic in the router, never in client-specific plugins,
+      so nothing has to be rebuilt when the client changes
+- [ ] Accepted cost: 2-4 months + permanent maintenance of streaming/markdown/
+      history/uploads/images/mobile/auth (all free in Open WebUI today)
+
+---
+
 ## 📝 PHASE 10 — Docs + polish
 
 - [ ] Audit privacy claims in README + DISCLAIMER
