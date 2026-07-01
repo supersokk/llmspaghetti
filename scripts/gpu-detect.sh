@@ -31,8 +31,8 @@ _gpu_detect_main() {
       DRIVER_STACK="cuda"
     fi
   elif lspci 2>/dev/null | grep -qi "nvidia"; then
-    # nvidia-smi not installed yet but GPU present
-    NVIDIA_COUNT=$(lspci | grep -ci "nvidia")
+    # nvidia-smi not installed yet but GPU present — count only display controllers
+    NVIDIA_COUNT=$(lspci | grep -iE "vga|3d|display" | grep -ci "nvidia")
     NVIDIA_MODELS=$(lspci | grep -i "nvidia" | sed 's/.*: //' | tr '\n' '|' | sed 's/|$//')
     DRIVER_STACK="cuda-pending"
   fi
@@ -48,8 +48,9 @@ _gpu_detect_main() {
       [[ "$DRIVER_STACK" == "none" ]] && DRIVER_STACK="rocm"
       [[ "$DRIVER_STACK" == "cuda"* ]] && DRIVER_STACK="cuda+rocm"
     fi
-  elif lspci 2>/dev/null | grep -qi "amd\|radeon\|advanced micro"; then
-    AMD_COUNT=$(lspci | grep -ci "amd\|radeon")
+  elif lspci 2>/dev/null | grep -iE "vga|3d|display" | grep -qi "amd\|radeon\|advanced micro"; then
+    # Count only display controllers — plain "amd" grep matches chipset/USB/etc. on Ryzen
+    AMD_COUNT=$(lspci | grep -iE "vga|3d|display" | grep -ci "amd\|radeon")
     AMD_MODELS=$(lspci | grep -i "amd\|radeon" | grep -i "vga\|3d\|display" | sed 's/.*: //' | tr '\n' '|' | sed 's/|$//')
     [[ "$DRIVER_STACK" == "none" ]] && DRIVER_STACK="rocm-pending"
   fi
