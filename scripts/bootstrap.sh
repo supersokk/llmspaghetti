@@ -49,6 +49,9 @@ if ! id "$LLMSPAGHETTI_USER" &>/dev/null; then
 fi
 
 mkdir -p "$INSTALL_DIR"/{config,logs,data,images,models,scripts}
+# data/webui is the bind-mount target for the Open WebUI container's data volume
+# (see docker-compose.yml). Must exist before the stack starts or the mount fails.
+mkdir -p "$INSTALL_DIR/data/webui"
 
 # Copy base fixtures from eval/ into runtime data path
 cp "$SCRIPT_DIR/../eval/fixtures_base.jsonl" "$INSTALL_DIR/data/" 2>/dev/null || true
@@ -81,7 +84,10 @@ if [[ ! -f "$INSTALL_DIR/config/mcp.json" ]]; then
 fi
 
 chown -R "$LLMSPAGHETTI_USER:$LLMSPAGHETTI_USER" "$INSTALL_DIR"
-# Ollama runs as its own user and needs write access to the models directory
+# Ollama runs as its own user. It needs to (a) traverse INSTALL_DIR and
+# (b) write to the models dir. Without the 755 on INSTALL_DIR, Ollama fails
+# with "mkdir models: permission denied — ensure path elements are traversable".
+chmod 755 "$INSTALL_DIR"
 chown -R ollama:ollama "$INSTALL_DIR/models" 2>/dev/null || true
 success "Directories ready"
 

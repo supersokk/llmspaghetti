@@ -119,6 +119,17 @@ keys → done. Models download in the background; the wizard returns immediately
   refresh `gpu-info.json`, and restart Ollama.
 - **Dual GPU (NVIDIA dGPU + AMD iGPU) routed correctly** — detection picks CUDA,
   skips ROCm. No action needed.
+- **Ollama crash-loop: "mkdir /opt/llmspaghetti/models: permission denied —
+  ensure path elements are traversable" (2026-07-01).** Ollama runs as the
+  `ollama` user and couldn't traverse `/opt/llmspaghetti` (owned by the
+  `llmspaghetti` user, not world-traversable). **Fix:** `chmod 755
+  /opt/llmspaghetti` + `chown -R ollama:ollama /opt/llmspaghetti/models`.
+  Bootstrap now does this. Symptom: `ollama list` says "could not connect".
+- **Open WebUI won't start: "mount /opt/llmspaghetti/data/webui: no such file
+  or directory" (2026-07-01).** The container's data volume binds `data/webui`,
+  which bootstrap created as `data/` only. **Fix:** `mkdir -p
+  /opt/llmspaghetti/data/webui`. Bootstrap now creates it. Symptom: router +
+  litellm containers stuck in "Created", webui never created.
 
 ---
 
