@@ -258,7 +258,9 @@ def draw(tick):
         ("Ollama",      service_status("ollama"),                   "Local model runner"),
         ("Open WebUI",  docker_container_status("llmspaghetti-webui"),     "Chat interface"),
         ("LiteLLM",     docker_container_status("llmspaghetti-litellm"),   "API gateway"),
-        ("Cockpit",     service_status("cockpit"),                  "Server management"),
+        # Cockpit is socket-activated: cockpit.socket listens always, the
+        # .service only runs while someone's connected. Check the socket.
+        ("Cockpit",     service_status("cockpit.socket"),           "Server management"),
         ("Caddy",       service_status("caddy"),                    "Reverse proxy"),
     ]
 

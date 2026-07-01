@@ -445,7 +445,7 @@ async def api_status():
             "ollama":   svc("ollama"),
             "webui":    webui,
             "litellm":  litellm,
-            "cockpit":  svc("cockpit"),
+            "cockpit":  svc("cockpit.socket"),   # socket-activated; .service is idle until connect
         },
         "downloads": _download_status(),
         "models": run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'").stdout.splitlines(),
