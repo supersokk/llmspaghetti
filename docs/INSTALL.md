@@ -119,6 +119,13 @@ keys → done. Models download in the background; the wizard returns immediately
   refresh `gpu-info.json`, and restart Ollama.
 - **Dual GPU (NVIDIA dGPU + AMD iGPU) routed correctly** — detection picks CUDA,
   skips ROCm. No action needed.
+- **tty1 console "Ctrl+C for shell" bounced — screen jumps down then back up
+  (2026-07-01).** The status display runs as a `Restart=always` service; the old
+  handler called `sys.exit(0)` on Ctrl+C, so systemd instantly relaunched it —
+  you could never get a usable shell. **Fix:** Ctrl+C now spawns `login`
+  (authenticated) as a child and resumes the display on logout, instead of
+  exiting. Workaround on any build: use **Ctrl+Alt+F2** — only tty1 was taken
+  over, so the other VTs still have normal login prompts.
 - **Open WebUI answers were JSON tool-schema garbage on small models
   (2026-07-01).** Open WebUI's `main` image injects a built-in `update_task`
   tool into every chat request; small models (e.g. qwen2.5:3b) can't tool-call

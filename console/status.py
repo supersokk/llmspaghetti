@@ -340,26 +340,49 @@ def draw(tick):
     sys.stdout.flush()
 
 
-def on_exit(sig, frame):
-    print(SHOW_CURSOR + "\n")
-    print("Dropping to shell. Type 'spag status' to check services.")
-    print("Type 'exit' to return to the LLMSpaghetti console.\n")
+def _drop_to_shell():
+    """Ctrl+C → authenticated console login; resume the status display on logout.
+
+    We must NOT exit the process here: the status service is Restart=always, so
+    exiting just makes systemd relaunch us — which looks like the screen
+    'jumping down then back up' and never gives you a usable shell. Instead we
+    run `login` (the same authenticated entry getty uses), then redraw when the
+    session ends. `login` prompts for username + password — physical access
+    does not hand out a passwordless root shell.
+    """
+    sys.stdout.write(SHOW_CURSOR + "\033[2J\033[H")   # show cursor, clear screen
+    sys.stdout.flush()
+    print("LLMSpaghetti — log in for a shell (session returns to this screen on logout).\n")
+    try:
+        subprocess.call(["login"])
+    except Exception:
+        pass
+
+
+def on_term(sig, frame):
+    # systemctl stop → clean exit, restore the cursor.
+    sys.stdout.write(SHOW_CURSOR)
+    sys.stdout.flush()
     sys.exit(0)
 
 
 def main():
-    signal.signal(signal.SIGINT,  on_exit)
-    signal.signal(signal.SIGTERM, on_exit)
+    # SIGTERM = real shutdown. Ctrl+C is caught below as KeyboardInterrupt and
+    # drops to an authenticated login instead of exiting the process.
+    signal.signal(signal.SIGTERM, on_term)
 
     tick = 0
     while True:
         try:
             draw(tick)
+            time.sleep(5)
+        except KeyboardInterrupt:
+            _drop_to_shell()
         except Exception as e:
             # Never crash — just show error and keep running
             print(f"\n[console error: {e}]", file=sys.stderr)
+            time.sleep(5)
         tick += 1
-        time.sleep(5)
 
 
 if __name__ == "__main__":
