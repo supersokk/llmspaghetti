@@ -84,6 +84,12 @@ Legend: [x] done & tested · [~] code exists, untested/unproven · [ ] not built
 
 Once routing works, give users control over it.
 
+- [ ] Add **Cerebras** as a cloud provider (https://cloud.cerebras.ai/)
+      - Free API keys with limited usage across several models — great low/no-cost
+        on-ramp for the router-only / no-GPU path.
+      - LiteLLM already supports it (`cerebras/<model>`), so: add CEREBRAS_API_KEY
+        to the Settings API-key fields + firstboot wizard + a litellm_config entry.
+
 - [ ] Visual routing rule editor in web UI
       - Keyword rules, drag to reorder priority
       - Private flag with hard no-cloud indicator 🔒
