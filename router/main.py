@@ -800,6 +800,16 @@ async def proxy(request: Request, path: str):
             is_streaming = payload.get("stream", False)
 
             if messages:
+                # LLMSpaghetti owns tool management (MCP, per-role) — see
+                # docs/PLANNED-client-strategy.md. Strip any tools a client
+                # injects (e.g. Open WebUI's built-in update_task). Small models
+                # choke on unexpected tools, and in our architecture the client
+                # never dictates tools to the model — the router decides. The
+                # router re-injects its own MCP tools further down if the role
+                # has installed servers.
+                for _k in ("tools", "tool_choice", "functions", "function_call"):
+                    payload.pop(_k, None)
+
                 last_msg, _ctx = _extract(messages)
                 original       = payload.get("model", "local-default")
                 cfg            = _load_config()
