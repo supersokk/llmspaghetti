@@ -22,48 +22,40 @@ error()   { echo -e "${RED}[GPU]${RESET}  $*" >&2; exit 1; }
 . /etc/os-release
 UBUNTU_VER="${VERSION_ID//./}"   # e.g. 2404
 
-# ── NVIDIA CUDA ──────────────────────────────────────────────────────────────
+# ── NVIDIA driver ────────────────────────────────────────────────────────────
+# Ollama bundles its own CUDA runtime — it only needs the NVIDIA *driver*, not
+# the full CUDA toolkit. We install via Ubuntu's `ubuntu-drivers`, which uses
+# prebuilt kernel modules matched to the running kernel + release. That's far
+# more robust than NVIDIA's DKMS repo packages, and it works on brand-new Ubuntu
+# releases before NVIDIA publishes a matching CUDA repo.
+#
+# (Verified on Ubuntu 26.04 + RTX 2060 Super, 2026-06-27. The old approach —
+#  cuda-toolkit + nvidia-kernel-open-dkms from NVIDIA's repo — failed because
+#  nvidia-kernel-open-dkms had no 26.04 candidate, which aborted the whole
+#  apt install. See docs/INSTALL.md.)
+#
+# The CUDA *toolkit* (nvcc etc.) is only needed for optional runtimes like vLLM;
+# install that separately if/when you enable them.
 install_cuda() {
-  info "Installing NVIDIA CUDA drivers for Ubuntu $VERSION_ID..."
+  info "Installing NVIDIA driver for Ubuntu $VERSION_ID (via ubuntu-drivers)..."
 
-  if dpkg -l | grep -q "cuda-toolkit"; then
-    success "CUDA already installed — skipping"
+  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
+    success "NVIDIA driver already active — skipping"
     return 0
   fi
 
-  # NVIDIA keyring
-  local KEYRING_URL="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu${UBUNTU_VER}/x86_64/cuda-keyring_1.1-1_all.deb"
-  wget -qO /tmp/cuda-keyring.deb "$KEYRING_URL" || error "Failed to download CUDA keyring"
-  dpkg -i /tmp/cuda-keyring.deb
-  rm /tmp/cuda-keyring.deb
-  apt-get update -qq
+  apt-get install -y -qq ubuntu-drivers-common 2>/dev/null || true
 
-  # Install CUDA toolkit + open kernel modules (better compatibility)
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    cuda-toolkit \
-    nvidia-kernel-open-dkms \
-    cuda-drivers
+  if command -v ubuntu-drivers &>/dev/null && ubuntu-drivers install; then
+    success "NVIDIA driver installed via ubuntu-drivers"
+  else
+    warn "ubuntu-drivers install failed — trying an explicit -open driver"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nvidia-driver-580-open \
+      || error "Could not install an NVIDIA driver. Try manually: sudo ubuntu-drivers install"
+  fi
 
-  # Blacklist nouveau (open source NVIDIA driver that conflicts)
-  cat > /etc/modprobe.d/blacklist-nouveau.conf << 'EOF'
-blacklist nouveau
-options nouveau modeset=0
-EOF
-  update-initramfs -u -k all 2>/dev/null || true
-
-  # PATH for all users
-  cat > /etc/profile.d/cuda.sh << 'EOF'
-export PATH=/usr/local/cuda/bin${PATH:+:${PATH}}
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
-EOF
-
-  # Persist nvidia modules
-  echo "nvidia" >> /etc/modules-load.d/llmspaghetti.conf
-  echo "nvidia_uvm" >> /etc/modules-load.d/llmspaghetti.conf
-  echo "nvidia_drm" >> /etc/modules-load.d/llmspaghetti.conf
-
-  success "CUDA installed successfully (reboot required)"
-  echo "CUDA" >> /opt/llmspaghetti/.needs-reboot
+  echo "NVIDIA driver" >> /opt/llmspaghetti/.needs-reboot
+  success "NVIDIA driver installed (reboot required)"
 }
 
 # ── AMD ROCm ─────────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@
 
 | Config | Details | Result |
 |---|---|---|
-| **Reference box (2026-06-27)** | Ryzen 3 3200G (4c), 16GB DDR4, 240GB SSD, **RTX 2060 Super 8GB** (NVIDIA), AMD Vega iGPU for display | 🚧 in progress |
+| **Reference box (2026-06-27)** | Ryzen 3 3200G (4c), 16GB DDR4, 240GB SSD, **RTX 2060 Super 8GB** (NVIDIA), AMD Vega iGPU for display | ✅ installs; GPU live (driver 595, CUDA 13.2) — routing test in progress |
 | CPU-only VM | Ubuntu 26.04, 4 vCPU, 7GB RAM, no GPU | ✅ installs & routes; can't run 2 models (CPU ceiling) |
 
 > 💡 **Tip — dedicate the dGPU to inference.** If your CPU has an integrated GPU
@@ -82,11 +82,22 @@ detection + driver install** → Docker → Ollama → Cockpit → web terminal 
 > drops a `.needs-reboot` flag and the console will tell you. After reboot the
 > wizard is waiting at `http://<server-ip>`.
 
-### 3. GPU / CUDA notes (this box)
+### 3. GPU / driver notes (this box)
 
-- We want **NVIDIA CUDA only.** The AMD Vega iGPU is display-only — do **not**
-  install ROCm for it. _(TODO: confirm install-gpu-drivers.sh handles a
-  NVIDIA-dGPU + AMD-iGPU box without pulling ROCm — annotate result here.)_
+- **NVIDIA CUDA only, ROCm correctly skipped.** ✅ Confirmed: detection sees the
+  NVIDIA card first (`cuda-pending`) and does *not* install ROCm for the
+  display-only Vega iGPU. No change needed.
+- **We install the driver via `sudo ubuntu-drivers install`, not NVIDIA's CUDA
+  toolkit.** Ollama bundles its own CUDA runtime — it only needs the driver.
+  Ubuntu's packaged driver uses prebuilt kernel modules matched to your kernel,
+  which is robust and works on brand-new Ubuntu releases.
+- Result on this box: `nvidia-driver-595` installed, reboot, then `nvidia-smi`
+  shows **RTX 2060 SUPER, 8192 MiB, CUDA 13.2**. ✅
+- After the driver reboot, refresh the GPU cache so the console/wizard see it:
+  ```
+  sudo bash llmspaghetti/scripts/gpu-detect.sh --json | sudo tee /opt/llmspaghetti/gpu-info.json
+  sudo systemctl restart ollama       # so Ollama picks up the GPU
+  ```
 
 ### 4. First-boot wizard
 
@@ -97,9 +108,17 @@ keys → done. Models download in the background; the wizard returns immediately
 
 ## Gotchas found on real hardware
 
-_(Filled in as we hit them — this is the most valuable part of the doc.)_
-
-- _pending_
+- **NVIDIA driver on Ubuntu 26.04 (2026-06-27).** The old GPU script installed
+  `cuda-toolkit + nvidia-kernel-open-dkms + cuda-drivers` from NVIDIA's CUDA repo.
+  On 26.04, `nvidia-kernel-open-dkms` had **no installation candidate**, and
+  because `apt install` is atomic, the whole GPU step aborted → bootstrap fell
+  back to CPU mode. **Fix:** install the driver with `sudo ubuntu-drivers install`
+  (Ubuntu's prebuilt, kernel-matched modules). Ollama only needs the driver, not
+  the CUDA toolkit. The script now does this automatically. If you hit CPU-mode
+  after a bootstrap on a GPU box, just run `sudo ubuntu-drivers install`, reboot,
+  refresh `gpu-info.json`, and restart Ollama.
+- **Dual GPU (NVIDIA dGPU + AMD iGPU) routed correctly** — detection picks CUDA,
+  skips ROCm. No action needed.
 
 ---
 
