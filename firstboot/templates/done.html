@@ -22,44 +22,90 @@
     <div class="hint" style="margin-top:0.4rem">Point Cursor, Continue.dev, Aider, or any OpenAI-compatible tool at the API URL above with this key.</div>
   </div>
 
-  <div style="text-align:left;margin-bottom:2rem">
-    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.75rem;font-weight:600">WHAT'S HAPPENING NOW</div>
-    <div id="service-status">
-      <div style="color:var(--text-dim);font-size:0.9rem">Checking services...</div>
+  <div style="text-align:left;margin-bottom:1.5rem">
+    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.5rem;font-weight:600">SETUP PROGRESS</div>
+    <div id="stage-banner" style="padding:0.75rem 1rem;border-radius:8px;background:var(--bg-alt,#1a1a1a);border-left:3px solid var(--yellow,#d29922);font-size:0.92rem">
+      Checking status…
     </div>
+    <div id="downloads" style="margin-top:0.75rem"></div>
+    <details style="margin-top:0.75rem">
+      <summary style="cursor:pointer;font-size:0.8rem;color:var(--text-dim)">Service details</summary>
+      <div id="service-status" style="margin-top:0.5rem"></div>
+    </details>
   </div>
 
-  <a href="http://{{ ip }}" class="btn btn-primary" style="font-size:1rem;padding:0.9rem 2rem">
-    Open LLMSpaghetti →
+  <a id="enter-btn" href="http://{{ ip }}" class="btn btn-primary"
+     style="font-size:1rem;padding:0.9rem 2rem;opacity:0.55;pointer-events:none">
+    Waiting for Open WebUI…
   </a>
+  <div id="enter-hint" class="hint" style="margin-top:0.5rem">
+    You can wait here — this page moves you in automatically when the chat is ready.
+    Models keep downloading in the background; you can manage them in the app.
+  </div>
 </div>
 
 <script>
+  const IP = "{{ ip }}";
+  let redirected = false;
+
+  function bar(pct) {
+    return `<div style="height:6px;border-radius:3px;background:#333;overflow:hidden;margin-top:3px">
+              <div style="height:100%;width:${pct}%;background:var(--green,#3fb950)"></div></div>`;
+  }
+
   async function pollStatus() {
+    let data;
     try {
-      const res  = await fetch('/api/status');
-      const data = await res.json();
-
-      const dot = s => s === 'running' ? '🟢' : s === 'stopped' ? '⚫' : '🟡';
-      const rows = Object.entries(data.services).map(([k,v]) =>
-        `<tr><td style="color:var(--text-dim);padding:0.25rem 0;width:40%">${k}</td>
-             <td>${dot(v)} ${v}</td></tr>`
-      ).join('');
-
-      const models = data.models.length
-        ? data.models.map(m => `<div style="font-size:0.88rem;color:var(--green)">✓ ${m}</div>`).join('')
-        : '<div style="color:var(--text-dim);font-size:0.88rem">Downloading... check back in a few minutes</div>';
-
-      document.getElementById('service-status').innerHTML =
-        `<table style="width:100%;border-collapse:collapse">${rows}</table>
-         <div style="margin-top:1rem;font-size:0.85rem;color:var(--text-dim);font-weight:600">DOWNLOADED MODELS</div>
-         <div style="margin-top:0.4rem">${models}</div>`;
+      const res = await fetch('/api/status');
+      data = await res.json();
     } catch (e) {
-      // silently ignore
+      // Wizard likely stopped because Open WebUI took over — hand off.
+      if (!redirected) { redirected = true; location.href = `http://${IP}`; }
+      return;
+    }
+
+    // ── Stage banner ──────────────────────────────────────────────────────
+    const banner = document.getElementById('stage-banner');
+    const colour = data.stage === 'ready' ? 'var(--green,#3fb950)' : 'var(--yellow,#d29922)';
+    banner.style.borderLeftColor = colour;
+    banner.textContent = (data.stage === 'ready' ? '✓ ' : '⧗ ') + (data.stage_msg || data.stage);
+
+    // ── Per-model downloads (the thing people actually want to see) ────────
+    const dl = document.getElementById('downloads');
+    if (data.downloads && data.downloads.length) {
+      dl.innerHTML = data.downloads.map(d => {
+        const pctMatch = (d.status || '').match(/(\d+)%/);
+        const pct = d.done ? 100 : (pctMatch ? +pctMatch[1] : 0);
+        const label = d.done
+          ? `<span style="color:var(--green,#3fb950)">✓ ${d.model} — ready</span>`
+          : `<span>${d.model}</span> <span style="color:var(--text-dim);font-size:0.82rem">— ${d.status}</span>`;
+        return `<div style="font-size:0.88rem;margin-bottom:0.5rem">${label}${d.done ? '' : bar(pct)}</div>`;
+      }).join('');
+    } else {
+      dl.innerHTML = '';
+    }
+
+    // ── Service details (collapsed) ───────────────────────────────────────
+    const dot = s => s === 'running' ? '🟢' : (s === 'absent' || s === 'stopped') ? '⚫' : '🟡';
+    document.getElementById('service-status').innerHTML =
+      `<table style="width:100%;border-collapse:collapse">` +
+      Object.entries(data.services).map(([k,v]) =>
+        `<tr><td style="color:var(--text-dim);padding:0.2rem 0;width:40%">${k}</td><td>${dot(v)} ${v}</td></tr>`
+      ).join('') + `</table>`;
+
+    // ── Ready → enable button + auto-redirect ─────────────────────────────
+    const btn = document.getElementById('enter-btn');
+    if (data.webui_ready) {
+      btn.style.opacity = '1';
+      btn.style.pointerEvents = 'auto';
+      btn.textContent = 'Open LLMSpaghetti →';
+      document.getElementById('enter-hint').textContent =
+        'Ready. Taking you to the chat…';
+      if (!redirected) { redirected = true; setTimeout(() => location.href = `http://${IP}`, 1500); }
     }
   }
 
   pollStatus();
-  setInterval(pollStatus, 5000);
+  setInterval(pollStatus, 3000);
 </script>
 {% endblock %}

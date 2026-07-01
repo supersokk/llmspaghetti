@@ -23,7 +23,9 @@ import uvicorn
 INSTALL_DIR = Path(os.environ.get("INSTALL_DIR", "/opt/llmspaghetti"))
 STACK_DIR   = INSTALL_DIR
 CONFIG_DIR  = INSTALL_DIR / "config"
+LOG_DIR     = INSTALL_DIR / "logs"
 DONE_FLAG   = INSTALL_DIR / ".firstboot-complete"
+SELECTED_MODELS_FILE = LOG_DIR / "selected_models.json"
 
 app = FastAPI(title="LLMSpaghetti Setup")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -342,8 +344,14 @@ async def apply_setup(
     write_router_roles_config(form_data)
 
     # Pull models BEFORE starting the stack so local-default exists when
-    # LiteLLM first tries to reach it.
+    # LiteLLM first tries to reach it. Record the selection so /api/status can
+    # report per-model download progress on the done page.
     if model_list:
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            SELECTED_MODELS_FILE.write_text(json.dumps(model_list))
+        except Exception:
+            pass
         pull_models_background(model_list)
     start_stack()
 
@@ -371,6 +379,37 @@ async def wizard_done(request: Request):
     })
 
 
+def _download_status():
+    """Per-model download progress, read from the ollama pull logs.
+
+    Shows the actual last status line from each pull (e.g. 'pulling <hash>: 45%'
+    or 'verifying sha256 digest') so the user sees exactly what's happening —
+    nothing hidden. A model is 'done' once it appears in `ollama list`.
+    """
+    try:
+        selected = json.loads(SELECTED_MODELS_FILE.read_text())
+    except Exception:
+        return []
+    have = set(run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'").stdout.split())
+    out = []
+    for m in selected:
+        done = m in have
+        status = "downloaded" if done else "starting…"
+        if not done:
+            logf = LOG_DIR / f"pull-{m.replace(':', '-')}.log"
+            if logf.exists():
+                try:
+                    # ollama uses \r to redraw progress — treat CRs as newlines
+                    raw   = logf.read_text(errors="ignore").replace("\r", "\n")
+                    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+                    if lines:
+                        status = lines[-1]
+                except Exception:
+                    pass
+        out.append({"model": m, "done": done, "status": status})
+    return out
+
+
 @app.get("/api/status")
 async def api_status():
     """Live status endpoint polled by the browser during setup."""
@@ -380,16 +419,35 @@ async def api_status():
         return run(f"systemctl is-active {name} 2>/dev/null").stdout.strip()
 
     def container(name):
-        return run(f"docker inspect -f '{{{{.State.Status}}}}' {name} 2>/dev/null").stdout.strip() or "stopped"
+        return run(f"docker inspect -f '{{{{.State.Status}}}}' {name} 2>/dev/null").stdout.strip() or "absent"
+
+    webui   = container("llmspaghetti-webui")
+    litellm = container("llmspaghetti-litellm")
+    # Is Open WebUI actually serving yet? (container "running" != HTTP ready)
+    http = run("curl -sf -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:3000").stdout.strip()
+    webui_ready = http == "200"
+
+    if webui_ready:
+        stage, stage_msg = "ready", "Open WebUI is up — you can start chatting."
+    elif webui == "running":
+        stage, stage_msg = "starting", "Services started — waiting for Open WebUI to finish booting…"
+    elif webui in ("created", "restarting"):
+        stage, stage_msg = "starting", "Starting containers…"
+    else:
+        stage, stage_msg = "preparing", "Downloading container images (~2 GB, one-time)…"
 
     return JSONResponse({
         "timestamp": datetime.utcnow().isoformat(),
+        "stage": stage,
+        "stage_msg": stage_msg,
+        "webui_ready": webui_ready,
         "services": {
             "ollama":   svc("ollama"),
-            "webui":    container("llmspaghetti-webui"),
-            "litellm":  container("llmspaghetti-litellm"),
+            "webui":    webui,
+            "litellm":  litellm,
             "cockpit":  svc("cockpit"),
         },
+        "downloads": _download_status(),
         "models": run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'").stdout.splitlines(),
     })
 
