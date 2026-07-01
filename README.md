@@ -35,7 +35,9 @@ Honest state of the project, because the rest of this README describes the
 - **Multi-model routing — proven.** With two local models loaded, the router
   sends different messages to different models automatically: `write a python
   function...` → coder model, `what is the capital of Norway` → fast model.
-- Local models via Ollama (tested CPU-only with `qwen2:0.5b` + `qwen2.5-coder:0.5b`)
+- Local models via Ollama — **validated on real GPU hardware** (RTX 2060 Super
+  8GB, Ubuntu 26.04): two 3B models resident in VRAM, routing between them, fast.
+  Also runs CPU-only (slower; one small model at a time).
 
 **🚧 Built but not yet proven:**
 - Image routing, MCP tools, cloud-provider routing, Cockpit management tabs

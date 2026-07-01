@@ -8,7 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Proven (2026-06-27 — multi-model routing milestone)
+### Proven (2026-07-01 — first bare-metal GPU deployment)
+- **Multi-model routing proven on real GPU hardware.** Ryzen 3 3200G + RTX 2060
+  Super 8GB, Ubuntu 26.04. qwen2.5:3b (general) + qwen2.5-coder:3b (code) both
+  resident in VRAM (~4.3GB). Code question → coder model, general question →
+  general model, automatically, both 200 OK, fast, no soft-lock. The thesis
+  works on the machine it was designed for. See docs/INSTALL.md.
+- **GPU driver install fixed:** use `ubuntu-drivers install` (Ubuntu's prebuilt,
+  kernel-matched modules) instead of NVIDIA's `cuda-toolkit + nvidia-kernel-open-dkms`
+  (the latter has no candidate on Ubuntu 26.04 and aborted the whole GPU step).
+- **Bootstrap hardening from the clean install:** create `data/webui` (Open WebUI
+  bind mount), `chmod 755` INSTALL_DIR (Ollama traversal), console checks
+  `cockpit.socket` not `.service`, gpu-detect counts only display controllers.
+- Recommended setup tip: use an iGPU for display, dedicate the dGPU to inference.
+- **Router now strips client-supplied `tools`/`tool_choice`.** Open WebUI injects
+  a built-in `update_task` tool; small models choke and echo the schema instead
+  of answering. The router owns tool management (MCP), so client tools are
+  dropped. Verified: clean "Oslo" + real Python through the Open WebUI UI.
+- **Full stack proven through the chat UI**, not just the API: Open WebUI →
+  router → correct model (general vs coder) → GPU → clean answer, fast.
+
+### Proven (2026-06-27 — multi-model routing milestone, CPU VM)
 - **The core thesis works.** With two local models loaded (qwen2:0.5b +
   qwen2.5-coder:0.5b), the router classifies each message and sends it to a
   DIFFERENT model automatically:

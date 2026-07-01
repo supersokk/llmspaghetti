@@ -12,7 +12,7 @@
 
 | Config | Details | Result |
 |---|---|---|
-| **Reference box (2026-06-27)** | Ryzen 3 3200G (4c), 16GB DDR4, 240GB SSD, **RTX 2060 Super 8GB** (NVIDIA), AMD Vega iGPU for display | ✅ installs; GPU live (driver 595, CUDA 13.2) — routing test in progress |
+| **Reference box (2026-07-01)** | Ryzen 3 3200G (4c), 16GB DDR4, 240GB SSD, **RTX 2060 Super 8GB** (NVIDIA), AMD Vega iGPU for display | ✅ **full success** — installs, GPU live (driver 595, CUDA 13.2), **multi-model routing proven on GPU** (qwen2.5:3b + qwen2.5-coder:3b, ~4.3GB VRAM, no soft-lock) |
 | CPU-only VM | Ubuntu 26.04, 4 vCPU, 7GB RAM, no GPU | ✅ installs & routes; can't run 2 models (CPU ceiling) |
 
 > 💡 **Tip — dedicate the dGPU to inference.** If your CPU has an integrated GPU
@@ -119,6 +119,14 @@ keys → done. Models download in the background; the wizard returns immediately
   refresh `gpu-info.json`, and restart Ollama.
 - **Dual GPU (NVIDIA dGPU + AMD iGPU) routed correctly** — detection picks CUDA,
   skips ROCm. No action needed.
+- **Open WebUI answers were JSON tool-schema garbage on small models
+  (2026-07-01).** Open WebUI's `main` image injects a built-in `update_task`
+  tool into every chat request; small models (e.g. qwen2.5:3b) can't tool-call
+  and echo the schema instead of answering. **Fix:** the router now strips
+  client-supplied `tools`/`tool_choice` — LLMSpaghetti owns tool management, the
+  client never dictates tools. Confirmed clean afterward: "capital of Norway" →
+  "Oslo", code question → real Python. (Isolate this class of bug with a direct
+  `curl` to the router vs LiteLLM — if both are clean, it's the client.)
 - **Ollama crash-loop: "mkdir /opt/llmspaghetti/models: permission denied —
   ensure path elements are traversable" (2026-07-01).** Ollama runs as the
   `ollama` user and couldn't traverse `/opt/llmspaghetti` (owned by the
