@@ -40,3 +40,5 @@
 {"id": "reason-11", "message": "give me feedback on my business plan", "expected": "reasoning", "context": {}, "note": "feedback on a plan -> reasoning"}
 {"id": "reason-12", "message": "what do you think of this approach", "expected": "reasoning", "context": {}, "note": "opinion on a substantive object -> reasoning"}
 {"id": "edge-08", "message": "what do you think of pizza?", "expected": "general", "context": {}, "note": "GUARD: trivia opinion stays general, not reasoning"}
+{"id": "code-09", "message": "python reverse script", "expected": "code", "context": {}, "note": "language + filler + artifact -> code (was general)"}
+{"id": "edge-09", "message": "write a python article about snakes", "expected": "general", "context": {}, "note": "GUARD: language + non-code noun stays general"}

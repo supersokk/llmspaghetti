@@ -109,10 +109,11 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern, Optional[re.Pattern]]] = [
         r'(?:write|create|make|build|generate)(?:\s+\w+){0,6}?\s+'
         r'(?:function|class|method|script|program|module|snippet|'
         r'cli|api|endpoint|query|regex)|'
-        # a programming language named as a script/program/etc.
+        # a programming language + a code artifact, allowing a few words between
+        # ("python reverse script", "javascript sort function")
         r'(?:python|javascript|typescript|java|golang|rust|bash|shell|sql|'
-        r'html|css|php|ruby|kotlin|swift)\s+'
-        r'(?:script|program|function|code|snippet|class|method|file)'
+        r'html|css|php|ruby|kotlin|swift)(?:\s+\w+){0,4}?\s+'
+        r'(?:script|program|function|code|snippet|class|method|file|app)'
         r')\b',
         re.IGNORECASE
     ), None),
