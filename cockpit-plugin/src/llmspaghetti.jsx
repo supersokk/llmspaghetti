@@ -451,53 +451,56 @@ function Gateway() {
 // TAB: TERMINAL (embedded ttyd)
 // ═════════════════════════════════════════════════════════════════════════════
 function Terminal() {
-  const [ip, setIp] = useState("localhost");
-  const [ready, setReady] = useState(false);
+  const [ip, setIp] = useState("");
 
   useEffect(() => {
-    run("hostname -I | awk '{print $1}'").then(setIp);
-    // Give ttyd a moment to be ready
-    sleep(800).then(() => setReady(true));
+    run("hostname -I | awk '{print $1}'").then(v => v && setIp(v));
   }, []);
 
-  // The terminal is served by ttyd at /terminal/ via Caddy proxy
-  const termUrl = `http://${ip}/terminal/`;
+  // Can't embed the terminal: ttyd is proxied on :80 while Cockpit serves this
+  // page on :9090 — a different origin (and http↔https), so the browser blocks
+  // the iframe (X-Frame-Options / CSP / mixed content). Launch it instead.
+  const ttyUrl     = ip ? `http://${ip}/terminal/` : null;
+  const cockpitUrl = "/system/terminal";
+
+  const btn = (primary) => ({
+    display: "inline-flex", alignItems: "center", gap: "0.4rem",
+    padding: "0.6rem 1.1rem", borderRadius: "8px", fontSize: "0.9rem",
+    fontWeight: 600, textDecoration: "none", cursor: "pointer",
+    background: primary ? C.accent : "transparent",
+    color: primary ? "white" : C.text,
+    border: primary ? "none" : `1px solid ${C.border}`,
+  });
 
   return (
-    <div className="terminal-wrap">
-      {/* Title bar mimicking a native terminal window */}
-      <div className="terminal-bar">
-        <div className="terminal-dot" style={{ background: "#ff5f57" }} />
-        <div className="terminal-dot" style={{ background: "#ffbd2e" }} />
-        <div className="terminal-dot" style={{ background: "#28c840" }} />
-        <span style={{ color: C.dim, marginLeft: "0.5rem" }}>
-          llmspaghetti@{ip} — bash
-        </span>
-        <span style={{ flex: 1 }} />
-        <span style={{ color: C.dim, fontSize: "0.75rem" }}>
-          user: <strong style={{ color: C.text }}>llmspaghetti</strong>
-          &nbsp;·&nbsp;
-          <a href={`http://${ip}:9090/system/terminal`} target="_blank" rel="noreferrer"
-            style={{ color: C.accent2, textDecoration: "none" }}>
-            Open root terminal in Cockpit ↗
-          </a>
-        </span>
+    <div style={{ maxWidth: 620, margin: "3rem auto", textAlign: "center",
+                  padding: "0 1.5rem" }}>
+      <div style={{ fontSize: "2.2rem", fontWeight: 800, color: C.accent2,
+                    letterSpacing: "0.1em", marginBottom: "0.5rem" }}>＞_</div>
+      <div style={{ fontSize: "1.15rem", fontWeight: 700, color: C.text,
+                    marginBottom: "0.6rem" }}>Terminal</div>
+      <p style={{ color: C.dim, fontSize: "0.9rem", lineHeight: 1.6,
+                  marginBottom: "1.5rem" }}>
+        Cockpit sandboxes plugin pages, so the terminal opens in its own tab
+        rather than embedded here.
+      </p>
+      <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center",
+                    flexWrap: "wrap" }}>
+        <a href={ttyUrl || "#"} target="_blank" rel="noreferrer"
+           style={{ ...btn(true), opacity: ttyUrl ? 1 : 0.5,
+                    pointerEvents: ttyUrl ? "auto" : "none" }}>
+          Open web terminal ↗
+        </a>
+        <a href={cockpitUrl} target="_blank" rel="noreferrer" style={btn(false)}>
+          Open Cockpit terminal (root) ↗
+        </a>
       </div>
-
-      {/* ttyd iframe */}
-      {ready ? (
-        <iframe
-          className="terminal-frame"
-          src={termUrl}
-          title="LLMSpaghetti Terminal"
-          allow="clipboard-read; clipboard-write"
-        />
-      ) : (
-        <div style={{ flex: 1, display: "flex", alignItems: "center",
-                      justifyContent: "center", gap: "0.75rem", color: C.dim }}>
-          <div className="spinner" /> Connecting to terminal…
-        </div>
-      )}
+      <div style={{ marginTop: "1.75rem", fontSize: "0.78rem", color: C.dim }}>
+        Web terminal (ttyd) runs as{" "}
+        <strong style={{ color: C.text }}>llmspaghetti</strong>
+        {ip && <> at <span style={{ fontFamily: "monospace" }}>{ip}</span></>} ·
+        the Cockpit terminal can elevate to root.
+      </div>
     </div>
   );
 }

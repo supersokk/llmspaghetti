@@ -264,19 +264,21 @@ collect_system() {
 
 # ── Main: collect everything and output JSON ──────────────────────────────────
 main() {
-  # Run slow collectors in parallel
+  # NOTE: these run sequentially on purpose. The previous version used
+  # `var=$(collector) &` which sets the variable inside a backgrounded SUBSHELL —
+  # the parent shell never sees it, so every section came out empty (bare commas,
+  # invalid JSON). Sequential is correct and still ~1s (dominated by the two
+  # sampling sleeps), well within the 5s dashboard refresh.
   local cpu_out ram_out disk_out net_out nvidia_out amd_out svc_out sys_out
 
-  cpu_out=$(collect_cpu) &    CPU_PID=$!
-  ram_out=$(collect_ram) &    RAM_PID=$!
-  disk_out=$(collect_disk) &  DISK_PID=$!
-  net_out=$(collect_network) & NET_PID=$!
-  nvidia_out=$(collect_nvidia) & NV_PID=$!
-  amd_out=$(collect_amd) &    AMD_PID=$!
-  svc_out=$(collect_services) & SVC_PID=$!
-  sys_out=$(collect_system) &  SYS_PID=$!
-
-  wait $CPU_PID $RAM_PID $DISK_PID $NET_PID $NV_PID $AMD_PID $SVC_PID $SYS_PID
+  cpu_out=$(collect_cpu)
+  ram_out=$(collect_ram)
+  disk_out=$(collect_disk)
+  net_out=$(collect_network)
+  nvidia_out=$(collect_nvidia)
+  amd_out=$(collect_amd)
+  svc_out=$(collect_services)
+  sys_out=$(collect_system)
 
   echo "{"
   echo "  $cpu_out,"

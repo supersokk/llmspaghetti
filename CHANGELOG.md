@@ -36,6 +36,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
      installed", empty Services, "no GPU". Every `run()` now prepends a full
      PATH, and `bootstrap.sh` actually deploys `collect-stats.sh` (it was never
      copied to `/opt/.../scripts/`, so the dashboard had no stats source).
+  6. `collect-stats.sh` emitted empty JSON (bare commas) because `main()` used
+     `var=$(collector) &` — the assignment ran in a backgrounded subshell, so the
+     parent never saw the value. Made the collectors sequential (correct, ~1s).
+     Also needs `bc` (added to bootstrap).
+  7. The Terminal tab embedded ttyd via iframe, but ttyd is on `:80` while
+     Cockpit serves the page on `:9090` (different origin + http/https), so the
+     browser blocked it ("content is blocked"). Replaced the dead iframe with a
+     launcher: buttons to open the web terminal or Cockpit's own terminal in a
+     new tab.
 
 ### Added (2026-07-02 — Flywheel Phase 1: correction UI)
 
