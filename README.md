@@ -9,6 +9,19 @@ and it silently sends each message to the right one.
 
 ---
 
+> ⚠️ **HONEST DISCLAIMER — PLEASE READ**
+>
+> This is a **hobby project** built for fun. The code is, by the author's own
+> admission, **vibecoded spaghetti** — held together with bash, enthusiasm, and a
+> concerning amount of optimism.
+>
+> **Use at your own risk.** The authors take zero responsibility for anything
+> that happens to your hardware, data, API bills, pets, or general wellbeing as a
+> result of running this software. No warranty, no support, updates when they
+> happen. Full terms: [DISCLAIMER.md](DISCLAIMER.md).
+
+---
+
 ## What is it?
 
 LLMSpaghetti turns a spare PC into a self-hosted **AI router**. You talk to a
@@ -48,9 +61,6 @@ messages to different local models automatically, GPU-accelerated.
 **Not built yet:** the bootable ISO (install is `git clone` + bootstrap for now),
 image routing, the VS Code extension, multi-node. Full picture in
 [TODO.md](TODO.md) and [CHANGELOG.md](CHANGELOG.md).
-
-> ⚠️ Hobby project — vibecoded, no warranty, no support, updates when they
-> happen. Use at your own risk. Full [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 
