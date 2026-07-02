@@ -168,7 +168,8 @@ Two match tiers:
   benefit ("tell me a joke" → "got any jokes?"), and it never overrides a
   confident classification — it only rescues an otherwise-general fallback.
   Best-effort: if the embed model isn't pulled, this tier silently no-ops and
-  exact match still works.
+  exact match still works. `nomic-embed-text` shows up in the **Models** tab
+  tagged 🔁 *router* — it's this embedding model (not a chat model), safe to keep.
 - **Storage:** append-only `data/overrides_local.jsonl` using `CORRECTION_SCHEMA`.
   Undo is a **tombstone** record, never a hard delete — reversibility by design.
 - **API:** `POST /api/correction` (reference a routing-log `id`, or pass an

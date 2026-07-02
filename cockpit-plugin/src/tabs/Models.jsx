@@ -51,6 +51,19 @@ const POPULAR_MODELS = [
 
 const TAG_COLOURS = { general: "badge-green", code: "badge-blue", large: "badge-yellow", small: "badge-grey" };
 
+// Models LLMSpaghetti installs for its own use — annotated so users know what
+// they are (and that they're not stray chat models to delete).
+const SYSTEM_MODELS = {
+  "nomic-embed-text": {
+    label: "router",
+    hint: "Embedding model used by the router for fuzzy correction matching (the routing flywheel) — not a chat model. Keep it for smarter routing.",
+  },
+};
+const systemInfo = (name) => {
+  const key = Object.keys(SYSTEM_MODELS).find(k => (name || "").startsWith(k));
+  return key ? SYSTEM_MODELS[key] : null;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const fmtBytes = (b) => {
@@ -485,6 +498,7 @@ export default function Models() {
               const isRunning = runningNames.has(m.name);
               const action    = busy[m.name];
               const isOpen    = openConfig === m.name;
+              const sysInfo   = systemInfo(m.name);
 
               return (
                 <div key={m.name} style={{ borderTop: `1px solid ${C.border}` }}>
@@ -494,11 +508,24 @@ export default function Models() {
                     <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
                                   background: isRunning ? C.green : C.dim }} />
 
-                    {/* Name + size */}
+                    {/* Name + size (+ system-model badge/note) */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontFamily: "monospace",
-                                    fontSize: "0.88rem", color: C.text }}>{m.name}</div>
-                      <div style={{ fontSize: "0.74rem", color: C.dim }}>{m.size}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{ fontWeight: 600, fontFamily: "monospace",
+                                       fontSize: "0.88rem", color: C.text }}>{m.name}</span>
+                        {sysInfo && (
+                          <span title={sysInfo.hint}
+                            style={{ fontSize: "0.66rem", fontWeight: 700, color: C.purple,
+                                     background: `${C.purple}18`, border: `1px solid ${C.purple}30`,
+                                     padding: "0.1rem 0.45rem", borderRadius: "20px",
+                                     cursor: "help", whiteSpace: "nowrap", flexShrink: 0 }}>
+                            🔁 {sysInfo.label}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "0.74rem", color: C.dim }}>
+                        {sysInfo ? sysInfo.hint : m.size}
+                      </div>
                     </div>
 
                     {/* VRAM size if running */}
