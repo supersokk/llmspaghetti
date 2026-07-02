@@ -19,6 +19,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   2. `manifest.json` menu keys were `llmspaghetti` / `llmspaghetti-main`, so
      Cockpit looked for `llmspaghetti.html` (nonexistent) → "Not found".
      Collapsed to a single `index` entry that loads the shipped `index.html`.
+  3. The Routing tab reached the router via browser `fetch("http://localhost:5000")`
+     — unreachable from a remote browser and CORS-blocked even locally, so the
+     routing log/health/corrections were always empty. Switched to Cockpit's
+     server-side bridge (`cockpit.http`). (Dashboard/Gateway tabs still use the
+     old `fetch` pattern — same fix pending.)
 
 ### Added (2026-07-02 — Flywheel Phase 1: correction UI)
 

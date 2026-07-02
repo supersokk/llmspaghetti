@@ -11,6 +11,7 @@ import React, { useState, useEffect, useCallback } from "react";
 const cockpit = window.cockpit || {
   file: (p) => ({ read: () => Promise.resolve(""), replace: () => Promise.resolve() }),
   spawn: (cmd, opts) => ({ stream: () => {}, then: (f) => { f(""); return { catch: () => {} }; }, catch: () => {} }),
+  http: () => ({ get: () => Promise.resolve("{}"), request: () => Promise.resolve("{}") }),
 };
 
 const C = {
@@ -29,7 +30,19 @@ const run = (cmd) => new Promise((res) => {
 
 const ROLES_PATH      = "/opt/llmspaghetti/config/router_roles.yaml";
 const ROLE_TOOLS_PATH = "/opt/llmspaghetti/config/role_tools.yaml";
-const ROUTER_URL      = "http://localhost:5000";
+const ROUTER_PORT     = 5000;
+
+// Router API calls go through Cockpit's server-side bridge (cockpit.http), NOT
+// browser fetch — the router binds 127.0.0.1:5000 on the SERVER, unreachable
+// from a remote browser and CORS-blocked even locally.
+const rget = (path) =>
+  cockpit.http(ROUTER_PORT).get(path).then(b => JSON.parse(b || "{}"));
+const rrequest = (method, path, obj) =>
+  cockpit.http(ROUTER_PORT).request({
+    method, path,
+    body: obj ? JSON.stringify(obj) : "",
+    headers: obj ? { "Content-Type": "application/json" } : {},
+  }).then(b => (b ? JSON.parse(b) : {}));
 
 const ROLE_META = {
   image:     { icon: "🖼",  label: "Image",     desc: "Generate, draw, create images" },
@@ -131,16 +144,8 @@ async function pingModel(modelName) {
   if (!modelName || modelName === "null") return { status: "disabled", latency: null };
   const t0 = performance.now();
   try {
-    const res = await fetch(
-      `${ROUTER_URL}/api/provider-health?model=${encodeURIComponent(modelName)}`,
-      { signal: AbortSignal.timeout(5000) },
-    );
-    const latency = Math.round(performance.now() - t0);
-    if (res.ok) {
-      const data = await res.json();
-      return { status: data.status || "ok", latency };
-    }
-    return { status: "error", latency };
+    const data = await rget(`/api/provider-health?model=${encodeURIComponent(modelName)}`);
+    return { status: data.status || "ok", latency: Math.round(performance.now() - t0) };
   } catch {
     return { status: "unreachable", latency: null };
   }
@@ -236,26 +241,14 @@ const ROLE_CHOICES = ["reasoning", "code", "fast", "document", "general", "image
 const normalizeMsg = (m) => (m || "").toLowerCase().trim().split(/\s+/).join(" ");
 
 async function postCorrection(body) {
-  const res = await fetch(`${ROUTER_URL}/api/correction`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error((await res.text().catch(() => "")) || res.statusText);
-  return res.json();
+  return rrequest("POST", "/api/correction", body);
 }
 async function undoCorrection(message) {
-  const res = await fetch(
-    `${ROUTER_URL}/api/correction?message=${encodeURIComponent(message)}`,
-    { method: "DELETE" },
-  );
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
+  return rrequest("DELETE", `/api/correction?message=${encodeURIComponent(message)}`);
 }
 async function fetchCorrections() {
   try {
-    const res = await fetch(`${ROUTER_URL}/api/corrections`);
-    if (res.ok) return (await res.json()).active || {};
+    return (await rget("/api/corrections")).active || {};
   } catch { /* router not running */ }
   return {};
 }
@@ -305,7 +298,7 @@ function RoutingLog() {
   const refresh = useCallback(async () => {
     try {
       const [logData, corr] = await Promise.all([
-        fetch(`${ROUTER_URL}/api/routing-log`).then(r => (r.ok ? r.json() : { entries: [] })),
+        rget("/api/routing-log").catch(() => ({ entries: [] })),
         fetchCorrections(),
       ]);
       setLog(logData.entries || []);
