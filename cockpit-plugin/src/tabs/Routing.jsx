@@ -227,18 +227,89 @@ function RoleCard({ role, entry, availableModels, onChange, health }) {
   );
 }
 
-// ── Routing log ───────────────────────────────────────────────────────────────
+// ── Routing log + corrections (Flywheel capture UI) ────────────────────────────
+
+// Roles a human can correct a route TO (mirrors the router's VALID_ROLES).
+const ROLE_CHOICES = ["reasoning", "code", "fast", "document", "general", "image", "none"];
+
+// Must match the router's _normalize_msg (lowercase, collapse whitespace).
+const normalizeMsg = (m) => (m || "").toLowerCase().trim().split(/\s+/).join(" ");
+
+async function postCorrection(body) {
+  const res = await fetch(`${ROUTER_URL}/api/correction`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.text().catch(() => "")) || res.statusText);
+  return res.json();
+}
+async function undoCorrection(message) {
+  const res = await fetch(
+    `${ROUTER_URL}/api/correction?message=${encodeURIComponent(message)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+async function fetchCorrections() {
+  try {
+    const res = await fetch(`${ROUTER_URL}/api/corrections`);
+    if (res.ok) return (await res.json()).active || {};
+  } catch { /* router not running */ }
+  return {};
+}
+
+// Per-row control: pick the correct role, or show/undo an existing correction.
+function CorrectionControl({ entry, corrected, busy, onCorrect, onUndo }) {
+  // quota / image marker rows carry no id and aren't user-intent — not correctable
+  if (!entry.id) return <span style={{ color: C.dim, fontSize: "0.75rem" }}>—</span>;
+
+  if (corrected) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: C.green,
+                       background: `${C.green}18`, padding: "0.1rem 0.45rem", borderRadius: "20px" }}>
+          ✓ {ROLE_META[corrected]?.icon} {corrected}
+        </span>
+        <button onClick={() => onUndo(entry.message)} title="Undo this correction"
+          style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.dim,
+                   borderRadius: "5px", fontSize: "0.68rem", padding: "0.1rem 0.4rem",
+                   cursor: "pointer" }}>undo</button>
+      </span>
+    );
+  }
+
+  return (
+    <select value="" disabled={busy}
+      onChange={e => e.target.value && onCorrect(entry, e.target.value)}
+      title="Mark this route wrong and pick the correct role"
+      style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.dim,
+               borderRadius: "5px", fontSize: "0.72rem", padding: "0.15rem 0.35rem",
+               cursor: busy ? "wait" : "pointer" }}>
+      <option value="">✎ fix…</option>
+      {ROLE_CHOICES.filter(r => r !== entry.role).map(r => (
+        <option key={r} value={r}>{ROLE_META[r]?.icon} {r}</option>
+      ))}
+    </select>
+  );
+}
+
 function RoutingLog() {
-  const [log, setLog] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [log, setLog]                 = useState([]);
+  const [corrections, setCorrections] = useState({});
+  const [loading, setLoading]         = useState(true);
+  const [busyId, setBusyId]           = useState(null);
+  const [note, setNote]               = useState(null);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`${ROUTER_URL}/api/routing-log`);
-      if (res.ok) {
-        const data = await res.json();
-        setLog(data.entries || []);
-      }
+      const [logData, corr] = await Promise.all([
+        fetch(`${ROUTER_URL}/api/routing-log`).then(r => (r.ok ? r.json() : { entries: [] })),
+        fetchCorrections(),
+      ]);
+      setLog(logData.entries || []);
+      setCorrections(corr);
     } catch { /* router not running */ }
     finally { setLoading(false); }
   }, []);
@@ -249,68 +320,125 @@ function RoutingLog() {
     return () => clearInterval(t);
   }, [refresh]);
 
+  const correct = async (entry, role) => {
+    setBusyId(entry.id); setNote(null);
+    try {
+      await postCorrection({ id: entry.id, corrected_role: role });
+      setNote({ ok: true, msg: `Corrected → ${role}. This and similar messages now route there.` });
+      await refresh();
+    } catch (e) {
+      setNote({ ok: false, msg: `Correction failed: ${e.message || e}` });
+    } finally { setBusyId(null); }
+  };
+
+  const undo = async (message) => {
+    setNote(null);
+    try {
+      await undoCorrection(message);
+      setNote({ ok: true, msg: "Correction undone." });
+      await refresh();
+    } catch (e) {
+      setNote({ ok: false, msg: `Undo failed: ${e.message || e}` });
+    }
+  };
+
   const tierColor = (tier) => ({
     signal:   C.purple,
     keyword:  C.accent2,
     llm:      C.yellow,
     fallback: C.red,
     override: C.green,
+    utility:  C.dim,
     quota:    "#f0883e",
   })[tier] || C.dim;
 
   if (loading) return (
     <div style={{ color: C.dim, fontSize: "0.85rem", padding: "1rem 0" }}>Loading routing log…</div>
   );
-  if (log.length === 0) return (
-    <div style={{ color: C.dim, fontSize: "0.85rem", padding: "1rem 0" }}>
-      No routing decisions yet. Send a message in Open WebUI to see routing in action.
-    </div>
-  );
+
+  const activeCount = Object.keys(corrections).length;
 
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-      <thead>
-        <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-          {["Time", "Tier", "Role", "Model", "Message"].map(h => (
-            <th key={h} style={{ padding: "0.4rem 0.6rem", color: C.dim, textAlign: "left",
-                                  fontSize: "0.72rem", textTransform: "uppercase",
-                                  letterSpacing: "0.04em", fontWeight: 600 }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {log.map((entry, i) => (
-          <tr key={i} style={{ borderBottom: `1px solid ${C.border}20` }}>
-            <td style={{ padding: "0.4rem 0.6rem", color: C.dim, whiteSpace: "nowrap" }}>
-              {new Date(entry.ts * 1000).toLocaleTimeString()}
-            </td>
-            <td style={{ padding: "0.4rem 0.6rem" }}>
-              <span style={{
-                fontSize: "0.72rem", fontWeight: 600, color: tierColor(entry.tier),
-                background: `${tierColor(entry.tier)}18`,
-                padding: "0.15rem 0.5rem", borderRadius: "20px",
-              }}>{entry.tier}</span>
-            </td>
-            <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600, color: C.text }}>
-              {ROLE_META[entry.role]?.icon} {entry.role}
-            </td>
-            <td style={{ padding: "0.4rem 0.6rem", fontFamily: "monospace",
-                         fontSize: "0.78rem", color: entry.fallback ? C.yellow : C.accent2 }}>
-              {entry.model}
-              {entry.fallback && (
-                <span style={{ marginLeft: "0.4rem", fontSize: "0.67rem", fontWeight: 700,
-                               color: C.yellow, background: `${C.yellow}20`,
-                               padding: "0.1rem 0.4rem", borderRadius: "10px" }}>FB</span>
-              )}
-            </td>
-            <td style={{ padding: "0.4rem 0.6rem", color: C.dim, maxWidth: "300px",
-                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {entry.message}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      {note && (
+        <div style={{
+          background: note.ok ? "rgba(63,185,80,0.1)" : "rgba(248,81,73,0.1)",
+          border: `1px solid ${note.ok ? "rgba(63,185,80,0.3)" : "rgba(248,81,73,0.3)"}`,
+          borderRadius: "8px", padding: "0.55rem 0.9rem", marginBottom: "0.75rem",
+          fontSize: "0.82rem", color: note.ok ? C.green : C.red,
+        }}>{note.ok ? "✓" : "✗"} {note.msg}</div>
+      )}
+
+      <div style={{ fontSize: "0.8rem", color: C.dim, marginBottom: "0.75rem" }}>
+        Wrong route? Use <strong style={{ color: C.text }}>✎ fix…</strong> to teach the router the
+        correct role — it applies to that message and similar ones immediately, no restart.
+        {activeCount > 0 && (
+          <span style={{ marginLeft: "0.35rem" }}>
+            <strong style={{ color: C.green }}>{activeCount}</strong> active correction{activeCount === 1 ? "" : "s"}.
+          </span>
+        )}
+      </div>
+
+      {log.length === 0 ? (
+        <div style={{ color: C.dim, fontSize: "0.85rem", padding: "1rem 0" }}>
+          No routing decisions yet. Send a message in Open WebUI to see routing in action.
+        </div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+              {["Time", "Tier", "Role", "Model", "Message", "Fix"].map(h => (
+                <th key={h} style={{ padding: "0.4rem 0.6rem", color: C.dim, textAlign: "left",
+                                      fontSize: "0.72rem", textTransform: "uppercase",
+                                      letterSpacing: "0.04em", fontWeight: 600 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {log.map((entry, i) => {
+              const corrected = entry.id ? corrections[normalizeMsg(entry.message)] : null;
+              return (
+                <tr key={entry.id || i} style={{ borderBottom: `1px solid ${C.border}20` }}>
+                  <td style={{ padding: "0.4rem 0.6rem", color: C.dim, whiteSpace: "nowrap" }}>
+                    {new Date(entry.ts * 1000).toLocaleTimeString()}
+                  </td>
+                  <td style={{ padding: "0.4rem 0.6rem" }}>
+                    <span style={{
+                      fontSize: "0.72rem", fontWeight: 600, color: tierColor(entry.tier),
+                      background: `${tierColor(entry.tier)}18`,
+                      padding: "0.15rem 0.5rem", borderRadius: "20px",
+                    }}>{entry.tier}</span>
+                  </td>
+                  <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600, color: C.text }}>
+                    {ROLE_META[entry.role]?.icon} {entry.role}
+                  </td>
+                  <td style={{ padding: "0.4rem 0.6rem", fontFamily: "monospace",
+                               fontSize: "0.78rem", color: entry.fallback ? C.yellow : C.accent2 }}>
+                    {entry.model}
+                    {entry.fallback && (
+                      <span style={{ marginLeft: "0.4rem", fontSize: "0.67rem", fontWeight: 700,
+                                     color: C.yellow, background: `${C.yellow}20`,
+                                     padding: "0.1rem 0.4rem", borderRadius: "10px" }}>FB</span>
+                    )}
+                  </td>
+                  <td style={{ padding: "0.4rem 0.6rem", color: C.dim, maxWidth: "280px",
+                               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {entry.message}
+                  </td>
+                  <td style={{ padding: "0.4rem 0.6rem", whiteSpace: "nowrap" }}>
+                    <CorrectionControl
+                      entry={entry} corrected={corrected}
+                      busy={busyId === entry.id}
+                      onCorrect={correct} onUndo={undo}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 

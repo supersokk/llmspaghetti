@@ -174,8 +174,11 @@ Two match tiers:
 - **API:** `POST /api/correction` (reference a routing-log `id`, or pass an
   explicit `message`), `GET /api/corrections`, `DELETE /api/correction` (undo).
   Routing-log entries carry `id` + `context` so any decision can become a
-  correction. The correction UI (a Cockpit routing-log panel) is the next step;
-  our own chat will call the same API with native 👍/👎.
+  correction.
+- **UI:** the Cockpit **Routing → Routing log** panel shows each decision with a
+  ✎ *fix…* control — pick the correct role to teach the router, or undo an
+  existing correction inline. Our own chat will call the same API with native
+  👍/👎.
 
 Full design — embedding kNN, community merge, the eval-gate — is in
 [PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md).

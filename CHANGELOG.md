@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-02 — Flywheel Phase 1: correction UI)
+
+- **Cockpit correction panel.** The Routing → Routing log view now shows each
+  decision with a ✎ *fix…* control — pick the correct role to teach the router,
+  or undo an existing correction inline. Kills the curl; calls the correction API
+  (`POST`/`DELETE /api/correction`). Corrected rows show a ✓ badge; an active
+  count is shown above the log. Quota/image marker rows (no `id`) aren't
+  correctable. The same API is what our own chat's 👍/👎 will call.
+
 ### Added (2026-07-02 — Flywheel Phase 1b: fuzzy corrections)
 
 - **Corrections now generalize to *similar* messages, not just verbatim repeats.**

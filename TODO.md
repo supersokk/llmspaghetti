@@ -141,8 +141,9 @@ Local-first learning loop; full design in
   beats keyword), `overrides_local.jsonl` store, correction API
   (`POST`/`GET`/`DELETE /api/correction`), tombstone-not-delete, routing-log
   entries carry `id` + `context`.
-- ☐ **Phase 1 — capture UI.** Cockpit routing-log panel: per-decision
-  "wrong → pick role" + undo (calls the correction API). Our own chat: native 👍/👎.
+- ✅ **Phase 1 — capture UI.** Cockpit Routing → Routing log: per-decision
+  ✎ "fix…" role picker + inline undo, corrected-row ✓ badge, active count (calls
+  the correction API). Our own chat will reuse the same API with native 👍/👎.
 - ✅ **Phase 1b — fuzzy match.** Embed messages (`nomic-embed-text` via Ollama),
   cosine-kNN over stored corrections so *similar* messages benefit (not just
   exact repeats). Runs only on a fallback; `knn_threshold` configurable;
