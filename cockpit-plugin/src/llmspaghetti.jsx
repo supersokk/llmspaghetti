@@ -22,8 +22,17 @@ import Services  from "./tabs/Services.jsx";
 const cockpit = window.cockpit || {
   spawn:   (cmd, opts) => ({ stream: () => {}, then: () => {}, catch: () => {} }),
   file:    (path)      => ({ read: () => Promise.resolve(""), replace: () => Promise.resolve() }),
-  http:    ()          => ({ get: () => Promise.resolve({}) }),
+  http:    ()          => ({ get: () => Promise.resolve("{}"), request: () => Promise.resolve("{}") }),
 };
+
+// Router API via Cockpit's server-side bridge (not browser fetch — the router
+// binds 127.0.0.1:5000 on the server, unreachable from a remote browser and
+// CORS-blocked even locally).
+const ROUTER_PORT = 5000;
+const rget = (path) =>
+  cockpit.http(ROUTER_PORT).get(path).then(b => JSON.parse(b || "{}"));
+const rrequest = (method, path) =>
+  cockpit.http(ROUTER_PORT).request({ method, path });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const run = (cmd) => new Promise((res, rej) => {
@@ -223,8 +232,6 @@ function StatusBadge({ state }) {
 
 
 // ── Quota panel (used inside Gateway tab) ────────────────────────────────────
-const ROUTER_URL_GW = "http://localhost:5000";
-
 function QuotaPanel() {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
@@ -232,8 +239,7 @@ function QuotaPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`${ROUTER_URL_GW}/api/quota-status`);
-      if (res.ok) setData(await res.json());
+      setData(await rget("/api/quota-status"));
     } catch { /* router not running */ }
     finally { setLoading(false); }
   }, []);
@@ -247,10 +253,8 @@ function QuotaPanel() {
   const resetModel = async (model) => {
     setResetting(model);
     try {
-      await fetch(
-        `${ROUTER_URL_GW}/api/quota-reset${model ? `?model=${encodeURIComponent(model)}` : ""}`,
-        { method: "DELETE" },
-      );
+      await rrequest("DELETE",
+        `/api/quota-reset${model ? `?model=${encodeURIComponent(model)}` : ""}`);
       await refresh();
     } finally { setResetting(null); }
   };
@@ -747,19 +751,32 @@ function App() {
   const isTerminal = tab === "terminal";
 
   return (
-    <div className="llmspaghetti-app">
-      {/* Navigation */}
-      <nav className="nav">
-        <span className="nav-logo">LLMSpaghetti</span>
-        {TABS.map(t => (
-          <button key={t.id}
-            className={`nav-tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-        <span className="nav-spacer" />
-        <span className="nav-status-dot" />
+    <div className="llmspaghetti-app"
+      style={{ background: C.bg, color: C.text, minHeight: "100vh" }}>
+      {/* Navigation — inline styles so the dark theme holds regardless of
+          Cockpit's bundled CSS (generic classes like .nav/.card/.btn collide). */}
+      <nav style={{ display: "flex", alignItems: "center", background: C.surface,
+                    borderBottom: `1px solid ${C.border}`, padding: "0 1.5rem",
+                    height: 52, flexShrink: 0 }}>
+        <span style={{ fontSize: "1.1rem", fontWeight: 800, letterSpacing: "0.12em",
+                       color: C.accent2, marginRight: "2rem" }}>LLMSpaghetti</span>
+        {TABS.map(t => {
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ height: 52, padding: "0 1rem", background: "transparent",
+                       border: "none",
+                       borderBottom: `2px solid ${active ? C.accent : "transparent"}`,
+                       color: active ? C.accent2 : C.dim, fontSize: "0.88rem",
+                       fontWeight: active ? 700 : 500, cursor: "pointer",
+                       whiteSpace: "nowrap" }}>
+              {t.label}
+            </button>
+          );
+        })}
+        <span style={{ flex: 1 }} />
+        <span style={{ width: 8, height: 8, borderRadius: "50%",
+                       background: C.green, marginRight: "0.5rem" }} />
         <span style={{ fontSize: "0.78rem", color: C.dim }}>live</span>
       </nav>
 

@@ -6,7 +6,11 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-const cockpit = window.cockpit || { spawn: () => ({ stream: () => {}, then: (f) => { f("{}"); return { catch: () => {} }; }, catch: () => {} }) };
+const cockpit = window.cockpit || {
+  spawn: () => ({ stream: () => {}, then: (f) => { f("{}"); return { catch: () => {} }; }, catch: () => {} }),
+  file:  () => ({ read: () => Promise.resolve("") }),
+  http:  () => ({ get: () => Promise.resolve("{}") }),
+};
 
 const C = {
   bg: "#0d1117", surface: "#161b22", border: "#30363d",
@@ -84,7 +88,7 @@ function ServiceDot({ state, label }) {
 
 // ── Provider health (reads router_roles.yaml + pings via router API) ─────────
 const ROLES_PATH_DH = "/opt/llmspaghetti/config/router_roles.yaml";
-const ROUTER_URL_DH = "http://localhost:5000";
+const ROUTER_PORT_DH = 5000;
 
 const ROLE_ICONS = {
   image: "🖼", code: "💻", reasoning: "🧠",
@@ -121,16 +125,10 @@ async function _pingDH(model) {
   if (!model) return null;
   const t0 = performance.now();
   try {
-    const res = await fetch(
-      `${ROUTER_URL_DH}/api/provider-health?model=${encodeURIComponent(model)}`,
-      { signal: AbortSignal.timeout(6000) },
-    );
-    const latency = Math.round(performance.now() - t0);
-    if (res.ok) {
-      const d = await res.json();
-      return { status: d.status || "ok", latency };
-    }
-    return { status: "error", latency };
+    const body = await cockpit.http(ROUTER_PORT_DH)
+      .get(`/api/provider-health?model=${encodeURIComponent(model)}`);
+    const d = JSON.parse(body || "{}");
+    return { status: d.status || "ok", latency: Math.round(performance.now() - t0) };
   } catch {
     return { status: "unreachable", latency: null };
   }
