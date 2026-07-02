@@ -149,12 +149,75 @@ corrections and produces a shareable `contributions.jsonl`:
 Honest-not-impressive applies hardest to our own privacy claims: say
 "pseudonymous," not "un-invertible." Embeddings leak *some* information.
 
-The user then PRs or uploads `contributions.jsonl`. Maintainers vet, dedup,
-and **increment `corroboration`** when independent users corrected the same
-shape the same way (this count is what makes soft merge meaningful — see
-below). A maintainer-curated **golden eval set** with consented or synthetic
-text is kept *separate* from the contributed pool, so the accuracy number
-never leaks from data also used as routing examples.
+The user then PRs or uploads `contributions.jsonl`. What happens next — dedup,
+corroboration, and the **eval-gate** that decides what actually ships — is
+Flow 2b below. A maintainer-curated **golden eval set** with consented or
+synthetic text is kept *separate* from the contributed pool, so the accuracy
+number never leaks from data also used as routing examples.
+
+---
+
+## Flow 2b — vetting & merge (maintainer side)
+
+Export produces contributions; this is how a pile of them becomes a release.
+Scenario: **50 people have uploaded `wrong-route` corrections.** The pipeline is
+mostly a script (a `spag fixtures merge` tool / CI job); humans only touch the
+minority the machine can't decide.
+
+1. **Ingest & validate.** Collect every `contributions.jsonl`. Drop malformed
+   records and any whose `embedding_model` ≠ the current pin (their vectors are
+   incomparable — see Gotchas). **Dedup by contributor** so one person uploading
+   the same correction 100× counts once.
+
+2. **Cluster by shape.** kNN-cluster the candidate embeddings. Each cluster =
+   "requests shaped like this." Within a cluster the corrected roles either
+   **agree** (a strong candidate fixture) or **disagree** (a genuinely ambiguous
+   shape — flag it).
+
+3. **Corroboration = independent agreeing contributors** per cluster. This sets
+   the `corroboration` count (n) that later feeds the inference-time vote weight.
+   One lone correction is n=1 (weak by design); 20 people independently making
+   the same correction is a real signal.
+
+4. **Eval-gate — the referee, and the primary defense against poisoning.**
+   For each candidate cluster, measure its effect on the maintainer-curated
+   **golden eval set** (kept separate from contributed data):
+   - baseline hit-rate = current community set
+   - candidate hit-rate = community set **+ this fixture**
+   - **accept only if hit-rate holds or improves; quarantine anything that
+     regresses it.** This is what makes bad uploads safe: a correction that
+     routes measurably *worse* is dropped no matter how many people sent it.
+     Votes can be brigaded; a regression on a trusted eval can't be faked.
+
+5. **Resolve conflicts & coverage gaps (human).** Disagreeing clusters, and
+   shapes the golden set doesn't cover (so adding them doesn't move the number,
+   good or bad), are flagged for a maintainer: split the cluster, add a
+   consented/synthetic golden example to gain coverage, or leave the shape to the
+   LLM tier. Steps 1–4 are scriptable; this is the judgment part.
+
+6. **Promote or quarantine.** Accepted fixtures get `source: community`, their
+   final corroboration count, and the embedding-model pin, and are written to the
+   next `fixtures_base.jsonl`. Rejected ones are **quarantined for re-eval, never
+   hard-deleted** (a fixture the current golden set can't validate may pass once
+   coverage grows).
+
+7. **Publish.** The new `fixtures_base.jsonl` ships in the release; `spag update`
+   rebuilds each user's community namespace (Flow 3).
+
+**Contributions are PRs; CI is the eval-gate.** The natural home on a GitHub
+project: a contribution is a PR adding rows to a candidate file, CI runs the
+golden-set eval and posts the **hit-rate delta on the PR**, and the merge
+criterion is a green (non-regressing) number. The accuracy is visible on the PR
+itself — the flywheel, showing its work.
+
+**Corroboration vs. eval — which is primary.** They act at different moments:
+the **eval-gate decides at *merge* time whether a fixture ships at all**;
+corroboration only weights an already-shipped fixture at *inference* time. Eval
+is primary — it answers "does this route better?", which a vote count merely
+proxies. And at 50 uploads corroboration is still tiny (most clusters n=1–3), so
+the eval-gate is doing nearly all the quality work early on. Another reason to
+ship keep-local + take-community first and enable soft-merge only once counts
+mean something.
 
 ---
 
@@ -315,7 +378,9 @@ it — and don't close the door on it in the schema.
 - What's the right re-embed strategy when the embedding model changes between
   releases, given embedding-only contributors have no text to re-embed?
 - Should corroboration be a flat count, or weighted by reviewer trust /
-  recency? A flat count is gameable if uploads aren't vetted.
+  recency? Gaming the *count* is largely defused by the eval-gate (a regressing
+  fixture is rejected regardless of votes — Flow 2b); the open part is how much
+  corroboration should additionally shape inference-time weight.
 - Per-conflict review UX for power users without overwhelming normal users —
   what's the right default surface?
 - Does the override tier need a cap (max active local overrides) before kNN
