@@ -57,23 +57,10 @@ that most affect *how* you build:
 
 ---
 
-## Project structure
+## Project structure & architecture
 
-```
-scripts/          Shell scripts — bootstrap, GPU detection, CLI, watchdog
-console/          Python — tty1 status display
-firstboot/        Python/FastAPI — one-time setup wizard + Jinja2 templates
-cockpit-plugin/   React — management web UI
-  src/
-    llmspaghetti.jsx         Main app + Models, Gateway, Terminal, Settings tabs
-    tabs/
-      Dashboard.jsx   Live system stats dashboard
-services/         systemd unit files
-stack/            docker-compose.yml + Caddyfile
-iso/              ISO build scripts + autoinstall config
-test/             Validation suite
-docs/             Extended documentation
-```
+See [docs/technical.md](docs/technical.md) for the project layout, request flow,
+and how the pieces fit together. Read it before making non-trivial changes.
 
 ---
 

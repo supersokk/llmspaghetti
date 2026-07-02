@@ -1,437 +1,144 @@
 # 🍝 LLMSpaghetti — TODO
 
-> Living document. Updated as we build.
-> PRs that tick things off are very welcome.
+Active work and roadmap. Shipped history lives in [CHANGELOG.md](CHANGELOG.md);
+feature designs live in the [PLANNED-* docs](docs/README.md).
+
+**Legend:** ✅ done · 🚧 in progress / partial · ☐ not started
 
 ---
 
-## 🔥 PHASE 1 — Core routing in Open WebUI (THIS IS THE PRODUCT)
+## ⏭ Next up
 
-Everything must work here first. User opens Open WebUI, talks naturally,
-gets the right answer from the right model. They never think about routing.
-
-### Intent detection + silent routing
-- [x] Routing middleware sits between Open WebUI and LiteLLM ✅ TESTED 2026-06-27
-- [x] Reads every incoming message ✅
-- [x] Detects intent from message content ✅ (keyword classifier)
-- [x] Selects correct model role silently ✅
-- [x] User never sees the mechanics — just gets the right answer ✅
-- [x] Ollama native API disabled in Open WebUI — routing CANNOT be bypassed ✅
-      (every message forced through the router; verified end-to-end on CPU VM)
-
-### Roles (the heart of it)
-✅ PROVEN 2026-06-27: classifier routes DIFFERENT messages to DIFFERENT models,
-automatically. With qwen2:0.5b (general/fast) + qwen2.5-coder:0.5b (code) loaded:
-  "write a python function to reverse a string" → keyword → code → code-local
-  "what is the capital of Norway"               → keyword → fast → local-default
-Two messages, two roles, two target models, picked from the text. The thesis works.
-- [x] `reasoning`  — "think through", "plan", "architect", "why does" ✅ classifier matches
-- [x] `code`       — "write a function", "debug", "refactor" ✅ PROVEN routes to coder model
-- [x] `fast`       — short messages, "quick", "what is X" ✅ PROVEN ("capital of Norway" → fast)
-- [ ] `image`      — "generate image", "draw", "picture of", "create image"
-                     → DALL-E or local ComfyUI
-                     → image appears inline in Open WebUI chat
-- [ ] `private`    — ⏸ PLANNED. Needs serious design thinking before building.
-                     See PLANNED-private-role.md. Do not implement until thought through.
-- [~] `document`   — "summarise", "read this", long context requests
-                     → model with large context window
-- [x] `general`    — everything else, catch-all fallback ✅ TESTED (fell back correctly)
-                     → default local model
-- [~] `none`       — model is running but router never touches it
-                     → direct calls only, excluded from auto-routing 🚫
-
-Legend: [x] done & tested · [~] code exists, untested/unproven · [ ] not built
-
-### Image routing (the killer feature)
-- [ ] Detect image requests in routing middleware
-- [ ] Route to DALL-E (if OpenAI key present) or ComfyUI (if installed)
-- [ ] Image saved to server at /opt/llmspaghetti/images/
-- [ ] Served via HTTP at http://your-server/images/filename.png
-- [ ] URL returned to Open WebUI → renders inline as image
-- [ ] Works completely silently — user just sees the image appear
-
-### Multi-model simultaneously
-- [ ] Multiple models loaded in VRAM at once
-- [ ] Each assigned a role
-- [ ] Router picks the right one per message
-- [ ] User sees one seamless conversation
-- [ ] VRAM budget tracked so you know what fits
-
-### Testing Phase 1
-- [x] Basic chat works end-to-end: msg → router → LiteLLM → Ollama → response ✅ 2026-06-27
-- [x] Multi-model routing PROVEN: code msg → coder model, quick msg → fast model ✅ 2026-06-27
-- [ ] "I need a picture of a dog in a cradle" → image appears
-- [ ] "Think through this architecture" → reasoning model responds
-- [ ] "Here is my confidential document..." → local model only, no cloud
-- [x] "Debug/write a Python function" → code model selected ✅ (routed to code-local)
-- [ ] All of the above in ONE Open WebUI chat session
-
-> ✅ MILESTONE HIT 2026-06-27 — multi-model routing proven on the VM.
->
-> ⚠️ HARDWARE CEILING FOUND: the CPU-only VM (7GB RAM, no swap) soft-locks
->    when running two models — kernel "soft lockup, CPU stuck 33s [llama-server]".
->    Not a bug: CPU inference saturates all cores. This is exactly why the
->    primary use case is a homelab box WITH A GPU. The VM proves the logic;
->    it can't comfortably RUN models. For CPU-VM testing keep to ONE model.
->
-> ⏭ NEXT (next session, router-side — see PLANNED-client-strategy.md):
->    1. Provenance tag "↳ answered by X" appended by the ROUTER (nothing hidden)
->    2. Then: image routing, reasoning model, fallback visibility
+- ☐ **Provenance tag** — router appends `↳ answered by <model>` to each reply so
+  you can see which model handled it (currently only in the server log). Built
+  in the router so it works in every client. Highest-value next task.
+- ☐ Image routing (see Phase 1)
+- ☐ Add **Cerebras** as a cloud provider (free-tier keys; LiteLLM supports
+  `cerebras/<model>`) — add to Settings API-keys + wizard + litellm_config.
 
 ---
 
-## 🎛 PHASE 2 — Control plane UI
+## 🔥 Phase 1 — Core routing (the product)
 
-Once routing works, give users control over it.
-
-- [ ] Add **Cerebras** as a cloud provider (https://cloud.cerebras.ai/)
-      - Free API keys with limited usage across several models — great low/no-cost
-        on-ramp for the router-only / no-GPU path.
-      - LiteLLM already supports it (`cerebras/<model>`), so: add CEREBRAS_API_KEY
-        to the Settings API-key fields + firstboot wizard + a litellm_config entry.
-
-- [ ] Visual routing rule editor in web UI
-      - Keyword rules, drag to reorder priority
-      - Private flag with hard no-cloud indicator 🔒
-      - Per-route logging (see what went where)
-- [ ] Model roles config panel
-      - Assign roles to models via tag UI, not YAML
-      - Multiple roles per model supported
-- [ ] Provider health monitoring
-      - Live latency per provider
-      - Auto-deprioritise slow/down providers
-      - Health panel in Dashboard
-- [ ] Fallback chains
-      - Primary → fallback → fallback
-      - Private role: no fallback, fail loudly
-- [ ] Quota management
-      - Per-provider request/spend limits
-      - Warn at 80%, block at 100%
+- ✅ Routing middleware between Open WebUI and LiteLLM
+- ✅ Intent detection from message content (keyword classifier)
+- ✅ Silent, automatic role → model selection
+- ✅ Routing enforced — Open WebUI's Ollama API disabled, can't be bypassed
+- ✅ Multi-model routing proven on GPU (code → coder, general → general)
+- ✅ `reasoning` / `code` / `fast` / `general` roles routing correctly
+- 🚧 `document` role (large-context) — classifier matches, untested
+- ☐ `image` role — detect image requests → DALL-E or ComfyUI → inline in chat,
+  saved to `/opt/llmspaghetti/images/`, served over HTTP
+- ☐ `private`/`local` role — ⏸ needs design ([PLANNED-private-role.md](docs/PLANNED-private-role.md))
+- ☐ Visible "answered by X" tag (see Next up)
+- ☐ Full demo in one chat session: image + reasoning + code + private + fast
 
 ---
 
-## 🗂 PHASE 3 — Models tab
+## 🎛 Phase 2 — Control plane UI
 
-- [ ] Load / Stop / Eject / Delete buttons
-- [ ] VRAM budget bar (live, updates as models load/unload)
-- [ ] Per-model config panel
-      - System prompt, temperature, Top-P, Top-K
-      - Context length, repeat penalty
-      - GPU layers, threads
-- [ ] Modelfile snapshot → Restore defaults button
-- [ ] Runtime selector (Ollama / llama.cpp / vLLM)
-
----
-
-## 🖥 PHASE 4 — Terminal + Updates
-
-- [ ] Terminal welcome screen / guided menu
-      - Friendly TUI, not a blank shell
-      - Numbered options, falls through to bash
-      - "What did that do?" explanation after each action
-- [ ] Full update system via `spag update`
-      - apt upgrade, GPU drivers, Ollama, Docker images, scripts from git
+- ☐ Visual routing-rule editor (keyword rules, priority, per-route logging)
+- ☐ Model-roles config panel (assign roles via UI, not YAML)
+- ☐ Provider health monitoring (live latency, auto-deprioritise degraded)
+- ☐ Fallback chains (primary → fallback; private role fails loudly, no fallback)
+- ☐ Quota management (per-provider limits, warn at 80%, block at 100%)
+- ☐ Auto/Single routing-mode switcher in the chat header (backend supports both;
+  UI toggle + "answered by X" indicator not built — see [technical.md](docs/technical.md))
 
 ---
 
-## 🔌 PHASE 5 — Services tap-to-install
+## 🗂 Phase 3 — Models tab
 
-- [ ] ComfyUI    — local image generation (pairs with image routing)
-- [ ] SearXNG    — self-hosted search for RAG
-- [ ] Whisper    — local speech-to-text
-- [ ] Qdrant     — vector database for RAG
-- [ ] n8n        — workflow automation
-- [ ] Flowise    — visual LLM chain builder
-- [ ] Automatic1111 — alternative SD web UI
-
----
-
-## 🏗 PHASE 6 — ISO + end-to-end testing
-
-- [x] Full boot → wizard → routing test in VirtualBox ✅ 2026-06-27 (Ubuntu 26.04)
-- [x] CPU-only test ✅ (qwen2:0.5b, works but slow as expected)
-- [ ] 🙌 GOOD COMMUNITY TASK — Minimal OS base (touches no routing code)
-      Goal: smallest, leanest base before bootstrap runs. "Lean not bloated."
-      ⚠️ Build UP from `ubuntu-server-minimal` (allowlist — add only what
-         bootstrap needs). Do NOT strip DOWN from a full install (denylist) —
-         that silently breaks GPU drivers / networking on hardware you didn't test.
-      ⚠️ "Nothing hidden": the PR must DOCUMENT what's included/removed and why,
-         and show a boot + stack-run test on real hardware. A PR that just
-         deletes packages with no test is a liability, not a contribution.
-      Candidates to leave out: snapd, cloud-init, landscape-client, motd-news,
-         apport, unattended-upgrades.
-      Note: pays off with the ISO build below — not useful until we ship an image.
-- [x] Minimum disk size requirement: documented as 50GB ✅
-      (Ubuntu ~9GB + Docker images ~5GB extract headroom + models — 20GB is NOT enough)
-- [ ] Full boot → wizard → routing test in QEMU (automated)
-- [ ] "Dog in a cradle" image test from fresh install
-- [ ] Router-only mode (old laptop, no GPU, cloud APIs only)
-- [ ] AMD ROCm test
-- [ ] Multi-GPU test
-- [ ] Bootstrap should add a swap file — test VM had 0 swap, risky under memory pressure
+- ☐ Load / Stop / Eject / Delete buttons
+- ☐ Live VRAM budget bar
+- ☐ Per-model config (system prompt, temperature, context length, GPU layers)
+- ☐ Modelfile snapshot → restore defaults
+- ☐ Runtime selector (Ollama / llama.cpp / vLLM)
+- ☐ Make pulled models auto-routable — ⚠️ open design ([PLANNED-model-management.md](docs/PLANNED-model-management.md))
 
 ---
 
-## ⚙️ PHASE 7 — Optional runtimes
+## 🔌 Phase 4 — Services & MCP tools (tap-to-install)
 
-- [ ] llama.cpp server as optional backend
-- [ ] vLLM as optional backend (NVIDIA only)
-
----
-
-## 🌐 PHASE 8 — Multi-node
-
-Structure baked in from day one (node_id in all configs).
-Full implementation after single node is rock solid.
-
-- [ ] Worker node join script (one command)
-- [ ] Node discovery (mDNS + manual fallback)
-- [ ] Nodes panel in web UI
-- [ ] Cross-node routing + load balancing
-- [ ] Failover if node goes offline
-- [ ] CPU inference node role
-- [ ] Storage node — DEFERRED (revisit if community requests)
+- ☐ Image gen: ComfyUI, Automatic1111
+- ☐ Data/search: SearXNG, Qdrant, Whisper
+- ☐ Automation: n8n, Flowise
+- 🚧 MCP tools (filesystem, memory, fetch, brave, github, sqlite, postgres) —
+  Services install UI + router injection built; per-role config + test buttons pending
+- ☐ Active-tools indicator in the chat header
 
 ---
 
-## 💻 PHASE 9 — VS Code extension
+## 🖥 Phase 5 — Terminal & updates
 
-**Only after Open WebUI routing works perfectly.**
-
-The extension is a thin connector. Nothing more.
-Anyone using Cline, Continue, Cursor, Aider already knows
-how to paste a URL — we don't need to document that.
-
-- [ ] Simple VS Code extension
-      - One field: your LLMSpaghetti server URL
-      - Connects to the same routing layer
-      - Same models, same roles, same routing
-      - Different window, same product
-- [ ] Publish to VS Code marketplace
-
-**Deliberately NOT doing:**
-- Custom slash commands in VS Code
-- Claude Code integration
-- Cline-specific docs
-- Continue.dev config guides
-- Any of that — paste the URL, it works, end of story
+- ✅ `spag update` (apt, Ollama, Docker images, Python venv deps)
+- ☐ Friendly guided terminal menu (numbered options, falls through to bash)
 
 ---
 
-## 🪟 PHASE ∞ — Our own chat (END-GAME)
+## 🏗 Phase 6 — ISO + broader testing
 
-Long-term, community-driven. **Not a near-term task.** See
-[docs/PLANNED-client-strategy.md](docs/PLANNED-client-strategy.md).
-
-The end-game is owning the chat window for full control/freedom — background
-jobs, rich provenance, auto/single switch, anything Open WebUI can't host.
-Viable ONLY because the router/backend does all the smarts behind one `/v1`
-endpoint, so the client is thin and swappable. Justified by control, not by
-routing (routing is already backend).
-
-- [ ] Revisit ONLY after multi-model routing + backend provenance tag are proven
-- [ ] Rule until then: logic in the router, never in client-specific plugins,
-      so nothing has to be rebuilt when the client changes
-- [ ] Accepted cost: 2-4 months + permanent maintenance of streaming/markdown/
-      history/uploads/images/mobile/auth (all free in Open WebUI today)
+- ✅ Boot → wizard → routing test on real GPU hardware (RTX 2060 Super, 26.04)
+- ✅ CPU-only VM test (one small model; documented CPU ceiling)
+- ✅ Minimum disk documented (50 GB)
+- ☐ **Build the bootable ISO** (Subiquity autoinstall → silent install → wizard)
+- ☐ 🙌 Community task: minimal OS base — build UP from `ubuntu-server-minimal`
+  (not strip down), document what's removed, test on real hardware
+- ☐ Bootstrap should create a swap file (test box had none)
+- ☐ Router-only mode on an old no-GPU laptop
+- ☐ AMD ROCm + multi-GPU verification
+- ☐ Automated QEMU boot test
 
 ---
 
-## 📝 PHASE 10 — Docs + polish
+## ⚙️ Phase 7 — Optional runtimes
 
-- [ ] Audit privacy claims in README + DISCLAIMER
-- [ ] Hardware compatibility table
-- [ ] Architecture diagram in README ✅ (done)
-- [ ] IDE section: "Use any tool — paste the URL, done"
+- ☐ llama.cpp server backend
+- ☐ vLLM backend (NVIDIA only)
 
 ---
 
-## ✅ Done (first VM test session — 2026-06-27)
+## 🌐 Phase 8 — Multi-node
 
-**First real end-to-end deployment. Went from source → running routing appliance.**
+Structure is node-aware already; implementation is future.
 
-- [x] Pushed project to GitHub (supersokk/llmspaghetti, private)
-- [x] Installed on Ubuntu 26.04 VM in VirtualBox via bootstrap.sh
-- [x] **Proved full routing chain works**: Open WebUI → Router → LiteLLM → Ollama → response
-- [x] Switched to Python venv (Ubuntu 26.04 PEP 668 — no more --break-system-packages)
-- [x] Bootstrap bugfixes found by actually running it:
-      - mkdir -p /etc/caddy before writing Caddyfile
-      - copy router/ eval/ config/ dirs to INSTALL_DIR (were missing → router crashed)
-      - chown models dir to ollama user + chmod 755 parent (Ollama couldn't write)
-      - create api_keys.env + mcp.json + data/webui on first run
-      - fixed watchdog filename (spag-watchdog.sh)
-- [x] Firstboot wizard: port 80→3001 (Caddy conflict), async stack startup (no more hang),
-      Caddy auto-switches 3001→3000 when Open WebUI healthy
-- [x] Fixed root bug: local-default hardcoded to ollama/llama3 regardless of user pick
-      → now uses first selected model
-- [x] Caddy /api/* conflicted with Open WebUI's own API → moved external API to /v1/*
-- [x] Disabled Ollama native API in Open WebUI → routing cannot be bypassed
-- [x] LiteLLM: removed master_key (internal-only), 1 worker (was 2, memory pressure)
-- [x] Security: env-var refs in litellm_config.yaml, added to .gitignore (key was hardcoded)
-- [x] Documented 50GB min disk, qwen2:0.5b as CPU test model
-
-## ✅ Done (MCP / VS Code / Settings session)
-
-- [x] Runtimes in Services tab — llama.cpp server + vLLM (Docker, tap-to-install)
-- [x] MCP Tools in Services tab — 7 servers (filesystem, memory, fetch, brave, github, sqlite, postgres), npm-based install, writes mcp.json
-- [x] config/mcp.json + config/role_tools.yaml — new config files
-- [x] Routing tab — "MCP Tools" view: per-role checkbox grid for tool assignment, reads/writes role_tools.yaml
-- [x] Router — MCP tool injection (schemas → LiteLLM), tool-call resolution loop (up to 5 turns, MCP subprocess), re-stream after resolution
-- [x] /api/mcp-status endpoint — configured servers + role assignments
-- [x] VS Code extension — one URL field, status bar, setup guide webview, 5 commands, auto-ping every 60s
-- [x] Settings tab — API key management (7 providers, masked inputs, writes api_keys.env, restarts LiteLLM), full system update (apt + Ollama + images), live update log
-- [x] Router — _load_api_keys() hot-loads api_keys.env into os.environ at startup
-
-## ✅ Done (previous sessions)
-
-- [x] Project scaffold (58 files)
-- [x] GPU detection (NVIDIA/AMD/auto)
-- [x] GPU driver installer (CUDA + ROCm)
-- [x] Bootstrap script
-- [x] First-boot web wizard (FastAPI + Jinja2)
-- [x] tty1 console status display
-- [x] Docker Compose stack (Open WebUI + LiteLLM)
-- [x] Caddy reverse proxy + WebSocket support
-- [x] Cockpit server management
-- [x] ttyd embedded web terminal
-- [x] Dashboard tab (CPU/RAM/GPU/Network/Disk live stats)
-- [x] `spag` CLI
-- [x] Watchdog service
-- [x] Power controls (stop models/services/reboot/shutdown)
-- [x] Pre-build validation suite (84 checks)
-- [x] Full test suite (local + remote SSH)
-- [x] GPL v3 license
-- [x] GitHub-ready structure (CI, issue templates, CONTRIBUTING)
-- [x] Renamed to LLMSpaghetti 🍝
-- [x] `spag` CLI alias
-- [x] Chef robot logo
-- [x] README rewritten around killer use cases
-- [x] Architecture SVG diagram
-- [x] Honest disclaimer
-- [x] Node-aware structure baked in
-- [x] TODO properly prioritised around Open WebUI first
+- ☐ Worker join script (one command)
+- ☐ Node discovery (mDNS + manual fallback)
+- ☐ Nodes panel, cross-node routing + load balancing, failover
+- ☐ CPU inference node role
+- ☐ Storage node — deferred until requested
 
 ---
 
-## 🔧 MCP Tools (tap to install, submenu under Services)
+## 💻 Phase 9 — VS Code extension
 
-### Default MCP servers (always installed, on by default)
-- [ ] filesystem — model reads/writes local files
-- [ ] memory    — persistent memory across conversations
-- [ ] fetch     — model reads URLs
+- 🚧 Thin connector (one URL field, status bar, setup webview) — built, needs testing
+- ☐ Publish to the VS Code marketplace
 
-### Tap to install
-- [ ] Brave Search  — web search (free tier: 2000/month)
-- [ ] GitHub        — read/write repos
-- [ ] PostgreSQL    — query databases
-- [ ] SQLite        — query local .db files
-- [ ] Puppeteer     — browser control / web agent
-- [ ] Docker        — manage containers
-- [ ] Obsidian      — read notes vault
-
-### Per-role tool configuration
-- [ ] Checkbox UI per role — tick which tools that role gets
-- [ ] Default sets per role (sensible out of box):
-      reasoning → memory, fetch
-      code      → filesystem, memory, github
-      fast      → none (speed is the point)
-      private   → ⏸ PLANNED (see PLANNED-private-role.md)
-      general   → memory, fetch
-      document  → filesystem, memory
-      image     → none
-      none      → none
-- [ ] User can override any default freely
-- [ ] Warning shown when adding heavy tools to fast role
-      "Tools added to a fast model may increase response times"
-- [ ] [Reset to defaults] button per role
-- [ ] Private role constraints — ⏸ PLANNED (see PLANNED-private-role.md)
-- [ ] Tool-role awareness in routing
-      - Active tools for the role passed to model with request
-      - Model knows what it has available
-
-### MCP management UI (submenu in Services tab)
-- [ ] Services tab structure:
-      ├── Runtimes          (llama.cpp, vLLM)
-      ├── Image Generation  (ComfyUI, Automatic1111)
-      ├── Data & Search     (SearXNG, Qdrant, Whisper)
-      ├── Automation        (n8n, Flowise)
-      └── MCP Tools         ← submenu
-          ├── Installed (status dots, Config, Stop buttons)
-          └── Available (Install buttons)
-- [ ] Config per server (paths, API keys, permissions)
-- [ ] Test button per server (ping the MCP server)
-- [ ] Active tools shown in chat header in Open WebUI
+Deliberately not doing: custom slash commands, tool-specific config guides — it's
+a thin client; paste the URL, done.
 
 ---
 
-## 🎛 Routing Mode — Auto vs Single
+## 🪟 Phase ∞ — Our own chat (end-game)
 
-- [ ] Two routing modes selectable in Open WebUI header (always visible)
+Long-term, community-driven. Full rationale in
+[PLANNED-client-strategy.md](docs/PLANNED-client-strategy.md).
 
-      AUTO mode (default)
-        - LLMSpaghetti decides which model handles each message
-        - Based on roles, intent detection, content
-        - User never thinks about it
-        - "I need a picture of a dog" → image role
-        - "Think through this" → reasoning role
-        - Indicator: 🔀 Auto
-
-      SINGLE mode
-        - User picks one specific model
-        - That model handles ALL messages regardless of roles
-        - Routing rules completely bypassed
-        - User is in full control
-        - Useful when you want to test a specific model
-        - Useful when you know exactly what you need
-        - Useful for long focused sessions with one model
-        - Indicator: 📌 Llama 3 8B (or whatever is picked)
-
-- [ ] Mode switcher in Open WebUI
-        - Persistent toggle in the chat header
-        - Auto → shows 🔀 Auto
-        - Single → shows model picker dropdown
-                   📌 [Llama 3 8B ▾]
-        - Switching modes mid-conversation is allowed
-        - Mode persists across browser refresh per user
-
-- [ ] Single mode behaviour
-        - Selected model gets every message
-        - No intent detection runs
-        - No role matching
-        - MCP tools still active for that model
-        - If selected model is offline → warn user, dont auto-switch silently
-          "⚠️ Llama 3 8B is not loaded. Switch to Auto or load the model."
-
-- [ ] Auto mode behaviour  
-        - Full routing pipeline runs per message
-        - Falls back to general role if no intent detected
-        - If role model is offline → use fallback chain
-        - User never sees routing mechanics
-
-- [ ] Visual indicator in chat
-        - Every message response shows which model answered
-        - Small subtle tag under the response
-        - Auto mode:   "↳ answered by Groq (fast role)"
-        - Single mode: "↳ Llama 3 8B"
-        - Can be toggled off in settings for clean UI
+- ☐ Revisit only after the provenance tag and multi-model routing are solid
+- ☐ Rule until then: logic in the router, never in client-specific plugins
 
 ---
 
-## 🧠 Community Router Model (long term, community-driven)
+## 🧠 Community router model (long-term)
 
-Not a core team task. Documented so the right contributor can find it.
-Needs: ML skills + enough fixture data + someone willing to do it.
+A community-trained classifier to beat the keyword router. Full design +
+prerequisites in [PLANNED-router-model.md](docs/PLANNED-router-model.md).
 
-- [ ] Prerequisite: ~1,000 community fixtures accumulated
-- [ ] Prerequisite: fixture quality review process working
-- [ ] Prerequisite: held-out eval set separate from training data
-- [ ] Fine-tune small model (Phi-3 Mini or Gemma 2B) on fixture corpus
-      using LoRA/QLoRA via HuggingFace PEFT
-- [ ] Measure against eval harness — must beat keyword classifier
-- [ ] Publish weights on Hugging Face as llmspaghetti/router:v1
-- [ ] Wire into LLMSpaghetti as optional classifier role
-      ollama pull llmspaghetti/router:v1
-- [ ] Version roadmap: v1 → v2 → lite → pro → multilingual
+---
 
-Full design: docs/PLANNED-router-model.md
-Open questions: open as GitHub Discussions, not Issues
+## 📝 Docs & polish
+
+- ✅ Documentation restructured per [DOCUMENTATION_GUIDELINES.md](DOCUMENTATION_GUIDELINES.md)
+- ☐ Hardware compatibility table (grow as people report)
+- ☐ Audit privacy wording across all docs

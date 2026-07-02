@@ -13,7 +13,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Super 8GB, Ubuntu 26.04. qwen2.5:3b (general) + qwen2.5-coder:3b (code) both
   resident in VRAM (~4.3GB). Code question → coder model, general question →
   general model, automatically, both 200 OK, fast, no soft-lock. The thesis
-  works on the machine it was designed for. See docs/INSTALL.md.
+  works on the machine it was designed for. See docs/install.md.
 - **GPU driver install fixed:** use `ubuntu-drivers install` (Ubuntu's prebuilt,
   kernel-matched modules) instead of NVIDIA's `cuda-toolkit + nvidia-kernel-open-dkms`
   (the latter has no candidate on Ubuntu 26.04 and aborted the whole GPU step).
@@ -90,10 +90,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.1.0] — 2024
+## Initial scaffold (2024)
 
-### Added
-- Bootable ISO with silent Subiquity autoinstall
+Not a released product — the first pass that stood up the whole stack. Some of
+this was only scaffolded here and proven later (see the 2026 entries above);
+the **bootable ISO in particular is a long-term goal, not a shipped feature** —
+it needs a complete, proven product first.
+
+### Added / scaffolded
+- ISO builder + autoinstall config **scaffolded only** — the working "flash a
+  USB and boot" ISO is way down the roadmap (build it once the product is complete)
 - Auto-detection of NVIDIA (CUDA) and AMD (ROCm) GPUs
 - First-boot web wizard (hostname, timezone, SSH key, model selection, API keys)
 - tty1 live console status display (services, GPU stats, IP address)
