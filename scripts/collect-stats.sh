@@ -211,11 +211,17 @@ collect_amd() {
 }
 
 collect_services() {
+  # Strip ALL whitespace from the tool output so a stray newline (e.g. docker
+  # printing a blank line to stdout before it fails, or systemctl echoing status
+  # then the `||` firing) can't inject a raw control character into the JSON
+  # string. Default to a clean token when empty.
   svc_status() {
-    systemctl is-active "$1" 2>/dev/null || echo "inactive"
+    local s; s=$(systemctl is-active "$1" 2>/dev/null | tr -d '[:space:]')
+    echo "${s:-inactive}"
   }
   container_status() {
-    docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo "stopped"
+    local s; s=$(docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null | tr -d '[:space:]')
+    echo "${s:-stopped}"
   }
 
   # Ollama loaded models
