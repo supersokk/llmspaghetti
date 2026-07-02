@@ -274,6 +274,10 @@ async def _fuzzy_override(message: str) -> str | None:
     if best_role and best_sim >= threshold:
         log.info(f"fuzzy override  sim={best_sim:.3f} ≥ {threshold} → {best_role}")
         return best_role
+    if best_role:
+        # Near-miss — log it so the threshold can be tuned from real numbers.
+        log.info(f"fuzzy override  best sim={best_sim:.3f} < {threshold} → no match "
+                 f"(would be {best_role})")
     return None
 
 
