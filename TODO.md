@@ -9,9 +9,10 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 
 ## ⏭ Next up
 
-- ☐ **Provenance tag** — router appends `↳ answered by <model>` to each reply so
-  you can see which model handled it (currently only in the server log). Built
-  in the router so it works in every client. Highest-value next task.
+- ✅ **Provenance tag** — router appends `↳ answered by <model>` to each reply
+  (visible footer + machine-readable `x_llmspaghetti` field), fallback-aware,
+  streaming + non-streaming. Toggle with `show_provenance`. Works in every
+  client. See [technical.md](docs/technical.md#provenance--show-your-work).
 - ☐ Image routing (see Phase 1)
 - ☐ Add **Cerebras** as a cloud provider (free-tier keys; LiteLLM supports
   `cerebras/<model>`) — add to Settings API-keys + wizard + litellm_config.
@@ -30,7 +31,7 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 - ☐ `image` role — detect image requests → DALL-E or ComfyUI → inline in chat,
   saved to `/opt/llmspaghetti/images/`, served over HTTP
 - ☐ `private`/`local` role — ⏸ needs design ([PLANNED-private-role.md](docs/PLANNED-private-role.md))
-- ☐ Visible "answered by X" tag (see Next up)
+- ✅ Visible "answered by X" tag (provenance — done, see Next up)
 - ☐ Full demo in one chat session: image + reasoning + code + private + fast
 
 ---
@@ -43,7 +44,8 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 - ☐ Fallback chains (primary → fallback; private role fails loudly, no fallback)
 - ☐ Quota management (per-provider limits, warn at 80%, block at 100%)
 - ☐ Auto/Single routing-mode switcher in the chat header (backend supports both;
-  UI toggle + "answered by X" indicator not built — see [technical.md](docs/technical.md))
+  UI toggle not built — the "answered by X" indicator now ships as the
+  provenance footer, see [technical.md](docs/technical.md#provenance--show-your-work))
 
 ---
 

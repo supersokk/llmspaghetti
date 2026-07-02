@@ -578,13 +578,15 @@ def _image_json(content: str) -> dict:
     }
 
 
-async def _text_sse(content: str, model: str) -> AsyncIterator[bytes]:
+async def _text_sse(content: str, model: str, prov: dict | None = None) -> AsyncIterator[bytes]:
     """Wrap a plain text response as an SSE stream (used after tool-call resolution)."""
     cid   = f"chatcmpl-tool-{secrets.token_hex(6)}"
     chunk = {
         "id": cid, "object": "chat.completion.chunk", "model": model,
         "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
     }
+    if prov:
+        chunk["x_llmspaghetti"] = prov
     yield f"data: {json.dumps(chunk)}\n\n".encode()
     done = {
         "id": cid, "object": "chat.completion.chunk", "model": model,
@@ -607,6 +609,28 @@ async def _image_sse(content: str) -> AsyncIterator[bytes]:
     }
     yield f"data: {json.dumps(done)}\n\n".encode()
     yield b"data: [DONE]\n\n"
+
+
+# ── Provenance: "show your work" tag on every reply ────────────────────────────
+# Core principle — nothing hidden. Every routed reply carries which model
+# answered, both as a visible footer (any client, survives copy-paste) and a
+# machine-readable field (tools can parse it). Router-side so it works
+# everywhere without per-client glue. Toggle with show_provenance in
+# router_roles.yaml (default on).
+
+def _provenance_enabled() -> bool:
+    return _load_config().get("show_provenance", True) is not False
+
+
+def _provenance_footer(model: str, role: str) -> str:
+    """The visible footer line appended to an assistant reply."""
+    role_part = f" · {role}" if role and role != "none" else ""
+    return f"\n\n`↳ answered by {model}{role_part}`"
+
+
+def _provenance_meta(model: str, role: str, fallback: bool) -> dict:
+    """The machine-readable provenance object added to the response body."""
+    return {"router": "llmspaghetti", "model": model, "role": role, "fallback": fallback}
 
 
 # ── VRAM budget check ─────────────────────────────────────────────────────────
@@ -939,10 +963,14 @@ async def proxy(request: Request, path: str):
                 "message": f"↳ fallback from {primary_model}",
                 "fallback": True,
             }
+        prov: dict | None = None
+        if route_meta and primary_model and _provenance_enabled():
+            _tier, _role, _lm = route_meta
+            prov = {"primary": primary_model, "fallback": fallback_model, "role": _role}
         return StreamingResponse(
             _stream_with_fallback(
                 request.method, path, fwd_headers, body,
-                dict(request.query_params), fallback_body, fallback_log,
+                dict(request.query_params), fallback_body, fallback_log, prov,
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -1043,17 +1071,38 @@ async def proxy(request: Request, path: str):
         if k.lower() not in ("content-encoding", "transfer-encoding", "content-length")
     }
 
+    # Provenance: name the model that actually answered (fallback-aware)
+    prov_role  = route_meta[1] if route_meta else ""
+    prov_model = fallback_model if used_fallback else primary_model
+    add_prov   = bool(route_meta and prov_model and _provenance_enabled()
+                      and upstream.status_code < 500)
+
     # If we converted streaming→non-streaming for tool resolution, re-wrap as SSE
     if tools_injected and tool_loop_messages is not None:
         try:
             final_content = (upstream.json()["choices"][0]["message"]["content"] or "")
         except Exception:
             final_content = upstream.text
+        prov = None
+        if add_prov:
+            final_content += _provenance_footer(prov_model, prov_role)
+            prov = _provenance_meta(prov_model, prov_role, used_fallback)
         return StreamingResponse(
-            _text_sse(final_content, primary_model or "local-default"),
+            _text_sse(final_content, primary_model or "local-default", prov),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    # Non-streaming: append footer to the reply content + attach machine-readable field
+    if add_prov:
+        try:
+            data = upstream.json()
+            msg  = data["choices"][0]["message"]
+            msg["content"] = (msg.get("content") or "") + _provenance_footer(prov_model, prov_role)
+            data["x_llmspaghetti"] = _provenance_meta(prov_model, prov_role, used_fallback)
+            return JSONResponse(data, status_code=upstream.status_code, headers=resp_headers)
+        except Exception as e:
+            log.debug(f"provenance tag skipped (unparseable body): {e}")
 
     return Response(
         content=upstream.content,
@@ -1070,11 +1119,44 @@ async def _stream_with_fallback(
     params: dict,
     fallback_body: bytes | None = None,
     fallback_log: dict | None = None,
+    prov: dict | None = None,
 ) -> AsyncIterator[bytes]:
+    # prov = {"primary": <model>, "fallback": <model|None>, "role": <role>} or None.
+    # When set, we intercept the SSE line stream and inject a provenance footer
+    # event just before the terminal [DONE], naming whichever model actually
+    # answered. Without prov we pass raw bytes through untouched.
+    used_fallback = False
+
+    def _footer_event() -> bytes:
+        model  = prov["fallback"] if (used_fallback and prov.get("fallback")) else prov["primary"]
+        footer = _provenance_footer(model, prov.get("role", ""))
+        meta   = _provenance_meta(model, prov.get("role", ""), used_fallback)
+        chunk  = {
+            "id": f"chatcmpl-prov-{secrets.token_hex(6)}",
+            "object": "chat.completion.chunk", "model": model,
+            "choices": [{"index": 0, "delta": {"content": footer}, "finish_reason": None}],
+            "x_llmspaghetti": meta,
+        }
+        return f"data: {json.dumps(chunk)}\n\n".encode()
+
+    async def _relay(resp) -> AsyncIterator[bytes]:
+        # Standard OpenAI/LiteLLM SSE is one `data:` line per event; inject the
+        # footer right before [DONE] so clients still render it (they stop at [DONE]).
+        async for line in resp.aiter_lines():
+            if not line:
+                continue
+            if line.strip() == "data: [DONE]":
+                if prov:
+                    yield _footer_event()
+                yield b"data: [DONE]\n\n"
+            else:
+                yield (line + "\n\n").encode()
+
     async with _client.stream(
         method=method, url=f"/{path}", headers=headers, content=body, params=params,
     ) as resp:
         if resp.status_code >= 500 and fallback_body is not None:
+            used_fallback = True
             log.warning(
                 f"streaming primary returned {resp.status_code}, switching to fallback"
             )
@@ -1084,11 +1166,19 @@ async def _stream_with_fallback(
                 method=method, url=f"/{path}", headers=headers,
                 content=fallback_body, params=params,
             ) as fb_resp:
-                async for chunk in fb_resp.aiter_bytes():
-                    yield chunk
+                if prov:
+                    async for chunk in _relay(fb_resp):
+                        yield chunk
+                else:
+                    async for chunk in fb_resp.aiter_bytes():
+                        yield chunk
             return
-        async for chunk in resp.aiter_bytes():
-            yield chunk
+        if prov:
+            async for chunk in _relay(resp):
+                yield chunk
+        else:
+            async for chunk in resp.aiter_bytes():
+                yield chunk
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-02 — provenance tag)
+
+- **"Show your work" on every reply.** The router now tags each routed answer
+  with the model that actually handled it — a visible footer
+  (`` `↳ answered by <model> · <role>` ``) plus a machine-readable
+  `x_llmspaghetti` field on the response body. Router-side, so it works in every
+  client (Open WebUI, VS Code, curl) with no per-client plugin.
+- **Fallback-aware:** if the primary model fails and a fallback answers, the tag
+  names the fallback and sets `"fallback": true`. Covers both streaming (footer
+  injected as a final SSE chunk before `[DONE]`) and non-streaming paths.
+- Toggle with `show_provenance` in `config/router_roles.yaml` (default on).
+- Implements the core "Nothing hidden — show your work" principle. See
+  docs/technical.md.
+
 ### Proven (2026-07-01 — first bare-metal GPU deployment)
 - **Multi-model routing proven on real GPU hardware.** Ryzen 3 3200G + RTX 2060
   Super 8GB, Ubuntu 26.04. qwen2.5:3b (general) + qwen2.5-coder:3b (code) both

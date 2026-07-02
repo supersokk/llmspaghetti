@@ -12,6 +12,11 @@
 mode: "auto"
 single_model: null
 
+# Append "↳ answered by <model>" to every reply (visible footer + a
+# machine-readable x_llmspaghetti field). Core "show your work" principle —
+# leave it on unless you have a reason not to. Set false to hide the tag.
+show_provenance: true
+
 roles:
   image:     "local-default"
   code:      "local-default"

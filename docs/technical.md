@@ -45,6 +45,7 @@ For each `POST /v1/chat/completions` the router:
    management, clients don't get to inject tools.
 7. Forwards to LiteLLM, streams the response back (re-wrapping as SSE when a
    tool-call loop had to run non-streaming).
+8. **Tags the reply with provenance** — which model actually answered (see below).
 
 The classifier ([eval/classifier.py](../eval/classifier.py)) is a tiered,
 keyword+signal design (no LLM call on the hot path):
@@ -84,6 +85,30 @@ back to the default. Mapping lives in `config/router_roles.yaml`.
 
 The auto/single **UI switcher** in the chat is not built yet (a TODO item);
 the backend supports both modes today.
+
+## Provenance — "show your work"
+
+Routing is silent, but never hidden. Every routed reply is tagged with the model
+that actually answered, in two forms:
+
+- **A visible footer** appended to the reply text —
+  `` `↳ answered by qwen2.5-coder:3b · code` `` — so it shows in any client
+  (Open WebUI, VS Code, curl) and survives copy-paste. No per-client plugin.
+- **A machine-readable field** on the response body, `x_llmspaghetti`, so tools
+  can parse the decision programmatically:
+
+```json
+{ "router": "llmspaghetti", "model": "qwen2.5-coder:3b",
+  "role": "code", "fallback": false }
+```
+
+It is **fallback-aware**: if the primary model fails and the router retries a
+fallback, the tag names the model that *actually* answered and sets
+`"fallback": true`. Both the streaming and non-streaming paths are covered — in
+streaming, the footer is injected as a final SSE chunk just before `[DONE]`.
+
+Toggle with `show_provenance` in `config/router_roles.yaml` (default `true`).
+Leaving it on is the "nothing hidden" default; turning it off is a deliberate choice.
 
 ## MCP tools
 
