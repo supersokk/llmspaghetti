@@ -21,9 +21,13 @@ const C = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// cockpit.spawn runs with a minimal PATH that omits /usr/local/bin (where ollama
+// lives), so prepend a full PATH or commands like `ollama`/`nvidia-smi` silently
+// fail — the cause of empty dashboards and "no models installed".
+const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
 const run = (cmd) => new Promise((res) => {
   let out = "";
-  const proc = cockpit.spawn(["bash", "-c", cmd], { superuser: "try", err: "message" });
+  const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" });
   proc.stream(d => { out += d; });
   proc.then(() => res(out.trim())).catch(() => res(""));
 });
@@ -575,14 +579,10 @@ export default function Dashboard({ onTabChange }) {
       {/* ── Top bar: hostname + last update + power button ── */}
       <div style={{ display: "flex", justifyContent: "space-between",
                     alignItems: "center", marginBottom: "1.25rem" }}>
-        <div>
-          <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>
-            {system?.hostname || "llmspaghetti"}
-          </div>
-          <div style={{ fontSize: "0.75rem", color: C.dim }}>
-            {system?.uptime && `up ${system.uptime}`}
-            {lastUpdate && ` · updated ${lastUpdate.toLocaleTimeString()}`}
-          </div>
+        <div style={{ fontSize: "0.75rem", color: C.dim }}>
+          {system?.hostname && <span>{system.hostname} · </span>}
+          {system?.uptime && `up ${system.uptime}`}
+          {lastUpdate && ` · updated ${lastUpdate.toLocaleTimeString()}`}
         </div>
         <PowerMenu onAction={(id) => {
           if (id === "stop-models" || id === "stop-services") refresh();

@@ -29,7 +29,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
      page rendered light: boxy white tabs, black-on-grey text (Models/Services
      names), and an invisible white-on-white Power button. Forced the theme
      inline on the root container (dark bg + light text, inherited everywhere)
-     and inline-styled the nav/tabs.
+     and inline-styled the nav/tabs. Settings inputs styled inline too (dark
+     infill, readable text, a touch larger). Dropped the redundant hostname title.
+  5. `cockpit.spawn` runs with a minimal PATH omitting `/usr/local/bin`, so
+     `ollama` (and tools `collect-stats.sh` calls) weren't found → "no models
+     installed", empty Services, "no GPU". Every `run()` now prepends a full
+     PATH, and `bootstrap.sh` actually deploys `collect-stats.sh` (it was never
+     copied to `/opt/.../scripts/`, so the dashboard had no stats source).
 
 ### Added (2026-07-02 — Flywheel Phase 1: correction UI)
 

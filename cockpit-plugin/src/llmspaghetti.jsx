@@ -35,9 +35,11 @@ const rrequest = (method, path) =>
   cockpit.http(ROUTER_PORT).request({ method, path });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// cockpit.spawn has a minimal PATH without /usr/local/bin (ollama), so prepend one.
+const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
 const run = (cmd) => new Promise((res, rej) => {
   let out = "";
-  const proc = cockpit.spawn(["bash", "-c", cmd], { superuser: "try", err: "message" });
+  const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" });
   proc.stream(data => { out += data; });
   proc.then(() => res(out.trim())).catch(rej);
 });
@@ -505,6 +507,15 @@ function Terminal() {
 // ═════════════════════════════════════════════════════════════════════════════
 const API_KEYS_PATH = "/opt/llmspaghetti/config/api_keys.env";
 
+// Explicit input styling — the global stylesheet's `input{}` rule collides with
+// Cockpit's CSS, so style inline: dark infill matching the rest of the UI,
+// readable light text, and a touch larger.
+const SETTINGS_INPUT_STYLE = {
+  width: "100%", background: C.bg, border: `1px solid ${C.border}`,
+  borderRadius: "6px", color: C.text, padding: "0.6rem 0.85rem",
+  fontSize: "0.9rem", outline: "none",
+};
+
 const API_KEY_FIELDS = [
   { key: "OPENAI_API_KEY",     label: "OpenAI API Key",     hint: "Enables GPT-4o, DALL-E 3, and other OpenAI models" },
   { key: "ANTHROPIC_API_KEY",  label: "Anthropic API Key",  hint: "Enables Claude Sonnet, Claude Opus" },
@@ -647,7 +658,7 @@ function Settings() {
                 value={apiKeys[key] || ""}
                 onChange={setKey(key)}
                 placeholder={`${key}=…`}
-                style={{ flex: 1 }}
+                style={{ ...SETTINGS_INPUT_STYLE, flex: 1 }}
               />
               <button
                 className="btn btn-ghost btn-sm"
@@ -671,13 +682,15 @@ function Settings() {
           <div className="field">
             <label>Hostname</label>
             <input type="text" value={hostname}
-              onChange={e => setHostname(e.target.value)} />
+              onChange={e => setHostname(e.target.value)}
+              style={SETTINGS_INPUT_STYLE} />
           </div>
           <div className="field">
             <label>Timezone</label>
             <input type="text" value={timezone}
               onChange={e => setTimezone(e.target.value)}
-              placeholder="e.g. Europe/Oslo" />
+              placeholder="e.g. Europe/Oslo"
+              style={SETTINGS_INPUT_STYLE} />
             <div className="hint">Run <code>timedatectl list-timezones</code> to list options</div>
           </div>
         </div>

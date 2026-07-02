@@ -21,9 +21,11 @@ const C = {
   text: "#e6edf3", dim: "#8b949e", purple: "#bc8cff",
 };
 
+// cockpit.spawn has a minimal PATH without /usr/local/bin (ollama), so prepend one.
+const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
 const run = (cmd) => new Promise((res) => {
   let out = "";
-  const proc = cockpit.spawn(["bash", "-c", cmd], { superuser: "try", err: "message" });
+  const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" });
   proc.stream(d => { out += d; });
   proc.then(() => res(out.trim())).catch(() => res(""));
 });
@@ -421,7 +423,7 @@ export default function Models() {
     setAlert(null);
     try {
       await new Promise((res, rej) => {
-        const proc = cockpit.spawn(["ollama", "pull", modelId],
+        const proc = cockpit.spawn(["bash", "-c", `${PATHFIX} ollama pull '${modelId}'`],
           { superuser: "try", err: "message" });
         proc.stream(d => setPullLog(prev => prev + d));
         proc.then(() => {
