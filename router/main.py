@@ -237,17 +237,21 @@ def _cosine(a: list, b: list) -> float:
 
 async def _embed(text: str) -> list | None:
     """Embed via Ollama (nomic-embed-text). Best-effort: returns None if the model
-    isn't pulled or the call fails, so fuzzy matching degrades gracefully."""
+    isn't pulled or the call fails, so fuzzy matching degrades gracefully.
+
+    Timeout is generous (60s): the FIRST embed after the model is evicted must
+    cold-load it, which on a GPU already holding the chat models can take a while.
+    Failures are logged at WARNING — a silent embed failure is a hidden failure."""
     try:
         resp = await _ext_client.post(
             f"{OLLAMA_URL}/api/embeddings",
             json={"model": EMBED_MODEL, "prompt": (text or "")[:_MSG_CAP]},
-            timeout=10.0,
+            timeout=60.0,
         )
         resp.raise_for_status()
         return resp.json().get("embedding") or None
     except Exception as e:
-        log.debug(f"embed failed ({e!r}) — fuzzy override skipped")
+        log.warning(f"embed failed ({e!r}) — fuzzy override skipped (is '{EMBED_MODEL}' pulled?)")
         return None
 
 
