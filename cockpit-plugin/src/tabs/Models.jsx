@@ -418,7 +418,11 @@ export default function Models() {
   };
 
   const deleteModel = async (name) => {
-    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    const sys = systemInfo(name);
+    const msg = sys
+      ? `⚠ ${name} is a system model used by the router (${sys.label}).\n\n${sys.hint}\n\nDeleting it breaks that feature until you re-pull it. Delete anyway?`
+      : `Delete ${name}? This cannot be undone.`;
+    if (!confirm(msg)) return;
     setBusy(b => ({ ...b, [name]: "deleting" }));
     try {
       await run(`ollama rm "${name}"`);
