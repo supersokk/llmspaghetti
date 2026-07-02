@@ -1140,17 +1140,32 @@ async def _stream_with_fallback(
         return f"data: {json.dumps(chunk)}\n\n".encode()
 
     async def _relay(resp) -> AsyncIterator[bytes]:
-        # Standard OpenAI/LiteLLM SSE is one `data:` line per event; inject the
-        # footer right before [DONE] so clients still render it (they stop at [DONE]).
+        # Standard OpenAI/LiteLLM SSE is one `data:` line per event. Inject the
+        # footer just BEFORE the first chunk carrying a finish_reason — clients
+        # (Open WebUI) stop appending content once they see the stop, so anything
+        # after it is silently dropped. Fall back to injecting before [DONE] if
+        # no finish_reason is ever seen.
+        injected = False
         async for line in resp.aiter_lines():
             if not line:
                 continue
-            if line.strip() == "data: [DONE]":
-                if prov:
+            s = line.strip()
+            if s == "data: [DONE]":
+                if prov and not injected:
                     yield _footer_event()
+                    injected = True
                 yield b"data: [DONE]\n\n"
-            else:
-                yield (line + "\n\n").encode()
+                continue
+            if prov and not injected and s.startswith("data:"):
+                try:
+                    obj     = json.loads(s[5:].strip())
+                    choices = obj.get("choices") or []
+                    if choices and choices[0].get("finish_reason") is not None:
+                        yield _footer_event()
+                        injected = True
+                except (ValueError, AttributeError, IndexError):
+                    pass
+            yield (line + "\n\n").encode()
 
     async with _client.stream(
         method=method, url=f"/{path}", headers=headers, content=body, params=params,
