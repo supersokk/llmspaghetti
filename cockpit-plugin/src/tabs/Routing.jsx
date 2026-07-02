@@ -610,12 +610,14 @@ export default function Routing() {
     cockpit.file(ROLE_TOOLS_PATH, { superuser: "try" }).read().then(yaml => {
       setRoleTools(parseRoleTools(yaml || ""));
     });
-    run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'").then(raw => {
-      const ollama = raw.split("\n").filter(Boolean);
-      setAvail(["local-default", ...ollama,
-                "claude-sonnet", "claude-opus",
-                "gpt-4o", "gpt-4o-mini", "groq-llama3", "dall-e-3"]);
-    });
+    // Roles must map to LiteLLM model_name aliases (what the router forwards),
+    // NOT raw Ollama names — picking e.g. "qwen2.5:3b" makes LiteLLM reject the
+    // request ("Invalid model name"). Source the list from /v1/models via the
+    // router so the dropdown only offers routable names.
+    rget("/v1/models").then(res => {
+      const ids = (res.data || []).map(m => m.id).filter(Boolean);
+      setAvail(ids.length ? ids : ["local-default"]);
+    }).catch(() => setAvail(["local-default"]));
     // Check which MCP servers are installed
     const MCP_PKGS = {
       filesystem:   "@modelcontextprotocol/server-filesystem",
