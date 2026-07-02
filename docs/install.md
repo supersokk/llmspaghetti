@@ -252,6 +252,14 @@ The most valuable part of this doc — real failures, real fixes. A fresh
 - **Caddy served only HTTP; browser couldn't connect.** Use `http://` explicitly.
 - **Disk:** minimum 50 GB. After a VirtualBox disk resize you must
   `growpart` + `pvresize` + `lvextend` + `resize2fs` to actually use it.
+- **Open WebUI makes background model calls on every message.** It auto-generates
+  a chat title, tags, and follow-up suggestions via extra LLM calls (and
+  Follow-Up Generation is what makes the model appear to "ask itself" questions).
+  The router routes these to the cheap `utility` model so they don't hit your
+  expensive tier — but they *do* consume a model each turn. On a cloud-only box
+  that costs money/quota; point `utility` at your cheapest model or disable
+  Follow-Up / Title / Tags in OWUI (Admin → Settings → Interface). See
+  [technical.md](technical.md#utility-requests-housekeeping).
 
 Isolate a bad response by `curl`-ing the router (:5000) vs LiteLLM (:4000)
 directly — if both are clean, the client is the problem.

@@ -108,7 +108,21 @@ Detection, in priority order:
    a prompt beginning `### Task:`; we detect that until we own the client.
 
 The `utility` model is set in `config/router_roles.yaml` (falls back to `fast`,
-then `local-default`) — point it at your smallest model.
+then `local-default`) — point it at your smallest model. You never need a
+*dedicated* housekeeping model; it reuses one you already run.
+
+**Cost note (nothing hidden).** Open WebUI fires these calls on essentially
+*every* message, so each chat turn triggers a few extra small model calls in the
+background. That's Open WebUI's behavior, not ours — the router only ensures they
+land on the cheap `utility` model instead of your `reasoning`/expensive tier. Two
+implications worth knowing:
+
+- On a **cloud-only / router-only** box (no local model — `local-default` points
+  at a cloud provider), housekeeping calls cost money/quota on every message.
+  Point `utility` at your cheapest model, or turn Follow-Up / Title / Tags
+  generation off in Open WebUI (Admin → Settings → Interface).
+- Once LLMSpaghetti ships its **own chat client**, we control whether these calls
+  happen at all — this is a temporary, client-driven cost, not an inherent one.
 
 ## Provenance — "show your work"
 
