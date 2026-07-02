@@ -37,7 +37,8 @@ apt-get install -y -qq \
   ca-certificates gnupg lsb-release \
   software-properties-common apt-transport-https \
   python3 python3-pip python3-venv \
-  net-tools iproute2 htop
+  net-tools iproute2 htop \
+  nano less
 success "System updated"
 
 # ── Create service user and directories ──────────────────────────────────────

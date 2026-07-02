@@ -151,7 +151,8 @@ apt-get install -y -qq \
   python3 python3-pip \
   net-tools iproute2 htop nvtop \
   cockpit cockpit-storaged \
-  ca-certificates gnupg
+  ca-certificates gnupg \
+  nano less
 
 # Python deps for first-boot wizard
 pip3 install -q fastapi uvicorn jinja2 python-multipart 2>/dev/null || true
