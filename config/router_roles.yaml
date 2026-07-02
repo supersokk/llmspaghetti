@@ -24,4 +24,8 @@ roles:
   fast:      "local-default"
   document:  "local-default"
   general:   "local-default"
+  # Housekeeping (chat titles, tags, follow-up suggestions, autocomplete) —
+  # never user intent. Point at your smallest/cheapest model. If unset, the
+  # router reuses `fast`, then `local-default`.
+  utility:   "local-default"
   none:      null

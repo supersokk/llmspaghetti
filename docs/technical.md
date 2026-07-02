@@ -86,6 +86,30 @@ back to the default. Mapping lives in `config/router_roles.yaml`.
 The auto/single **UI switcher** in the chat is not built yet (a TODO item);
 the backend supports both modes today.
 
+## Utility requests (housekeeping)
+
+Not every request is a user asking a question. Chat clients fire background
+calls — generating a conversation **title**, **tags**, **follow-up
+suggestions**, autocomplete — that shouldn't be treated as user intent. Routing
+those through the classifier sent them to the `reasoning` tier (and, on a
+cloud-backed setup, would have burned your most expensive model on housekeeping).
+
+The router detects them and short-circuits: **skip classification, quota, MCP
+tools, and the provenance tag** (tagging a generated title would corrupt it),
+and route to a cheap `utility` model. They never appear in the user-facing
+routing log.
+
+Detection, in priority order:
+
+1. **Explicit signal (preferred)** — the client sets `metadata.intent` in the
+   body or an `X-LLMSpaghetti-Intent` header to `utility`/`task`. This is the
+   clean, client-agnostic path our own chat will use.
+2. **Compatibility shim** — Open WebUI marks its title/tags/follow-up calls with
+   a prompt beginning `### Task:`; we detect that until we own the client.
+
+The `utility` model is set in `config/router_roles.yaml` (falls back to `fast`,
+then `local-default`) — point it at your smallest model.
+
 ## Provenance — "show your work"
 
 Routing is silent, but never hidden. Every routed reply is tagged with the model

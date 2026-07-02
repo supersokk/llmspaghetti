@@ -186,6 +186,9 @@ def write_router_roles_config(form_data):
         "fast":      "groq-llama3"   if has_groq      else "local-default",
         "document":  "claude-sonnet" if has_anthropic else "local-default",
         "general":   "local-default",
+        # Client housekeeping (titles/tags/follow-ups) — always the cheap local
+        # model, never a cloud tier, even when cloud keys are present.
+        "utility":   "local-default",
         "none":      None,
     }
 

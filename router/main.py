@@ -116,6 +116,46 @@ def _model_for_role(role: str) -> tuple[str, str | None]:
     return (str(entry) if entry else "local-default"), None
 
 
+# ── Utility / housekeeping detection ──────────────────────────────────────────
+# Some requests aren't user intent: a client generating a chat title, tags, or
+# follow-up suggestions, autocomplete, etc. They must not be classified, must not
+# get MCP tools or a provenance tag (tagging a generated title would corrupt it),
+# and belong on a cheap model.
+#
+# Primary signal — an explicit marker the client sets: `metadata.intent` in the
+# body or the `X-LLMSpaghetti-Intent` header. This is what our own chat will send.
+# Compatibility shim — Open WebUI marks title/tags/follow-up generation with a
+# prompt that begins with "### Task:"; we detect that until we own the client.
+
+_UTILITY_INTENTS = {"utility", "task", "housekeeping"}
+
+
+def _is_utility_request(payload: dict, headers, last_msg: str) -> bool:
+    # 1. Explicit, client-agnostic signal (preferred).
+    meta = payload.get("metadata")
+    if isinstance(meta, dict) and str(meta.get("intent", "")).lower() in _UTILITY_INTENTS:
+        return True
+    try:
+        if str(headers.get("x-llmspaghetti-intent", "")).lower() in _UTILITY_INTENTS:
+            return True
+    except Exception:
+        pass
+    # 2. Open WebUI compatibility shim.
+    if last_msg.lstrip().startswith("### Task:"):
+        return True
+    return False
+
+
+def _utility_model() -> str:
+    """Cheap model for housekeeping: explicit `utility` role wins, else reuse the
+    `fast` model, else the local default."""
+    roles = _load_config().get("roles", {})
+    entry = roles.get("utility") or roles.get("fast") or "local-default"
+    if isinstance(entry, dict):
+        entry = entry.get("primary") or "local-default"
+    return str(entry)
+
+
 # ── Quota management ─────────────────────────────────────────────────────────
 
 def _load_quotas() -> dict:
@@ -878,9 +918,19 @@ async def proxy(request: Request, path: str):
                 cfg            = _load_config()
                 routing_mode   = cfg.get("mode", "auto")
                 single_mdl     = cfg.get("single_model")
+                is_utility     = _is_utility_request(payload, request.headers, last_msg)
 
                 # ── Routing mode ─────────────────────────────────────────────
-                if routing_mode == "single" and single_mdl:
+                if is_utility:
+                    # Client housekeeping (title / tag / follow-up generation,
+                    # autocomplete, …) — not user intent. Cheap model, and below
+                    # we skip quota, tools, and the provenance tag; route_meta
+                    # stays None so there's no footer and no routing-log entry.
+                    primary  = _utility_model()
+                    fallback = None
+                    tier, role_name = "utility", "utility"
+                    log.info(f"{'utility':<8} → {primary:<14} (housekeeping — classification skipped)")
+                elif routing_mode == "single" and single_mdl:
                     primary  = str(single_mdl)
                     fallback = None
                     tier, role_name = "override", "general"
@@ -897,7 +947,7 @@ async def proxy(request: Request, path: str):
                     )
 
                 # ── Quota check ───────────────────────────────────────────────
-                qstatus = _check_quota(primary)
+                qstatus = "ok" if is_utility else _check_quota(primary)
                 if qstatus == "blocked":
                     if fallback:
                         log.warning(f"quota exhausted for {primary!r}, routing to fallback {fallback!r}")
@@ -943,7 +993,8 @@ async def proxy(request: Request, path: str):
                     except Exception as e:
                         log.warning(f"DALL-E failed ({e!r}) — falling back to text model")
 
-                _increment_quota(primary)
+                if not is_utility:
+                    _increment_quota(primary)
                 payload["model"] = primary
 
                 # ── MCP tool injection ────────────────────────────────────────
@@ -960,7 +1011,8 @@ async def proxy(request: Request, path: str):
                 body             = json.dumps(payload).encode()
                 primary_model    = primary
                 fallback_model   = fallback
-                route_meta       = (tier, role_name, last_msg)
+                if not is_utility:
+                    route_meta   = (tier, role_name, last_msg)
 
         except Exception as e:
             log.warning(f"classify error ({e!r}) — passing through unchanged")

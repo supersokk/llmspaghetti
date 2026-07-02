@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-02 — utility request lane)
+
+- **Client housekeeping no longer routes as user intent.** Chat clients fire
+  background calls — title, tags, follow-up suggestions, autocomplete — that were
+  being classified and sent to the `reasoning` tier (and would hit the most
+  expensive model on a cloud-backed setup). The router now detects these and
+  short-circuits: skip classification, quota, MCP tools, and the provenance tag
+  (tagging a generated title would corrupt it), routing to a cheap `utility`
+  model. They never touch the user-facing routing log.
+- **Detection is client-agnostic first:** an explicit `metadata.intent` field or
+  `X-LLMSpaghetti-Intent` header (`utility`/`task`) — the path our own chat will
+  use. Open WebUI's `### Task:` prompt is an isolated compatibility shim.
+- New `utility` role in `router_roles.yaml` (falls back to `fast`, then
+  `local-default`). Diagnosed from real hardware: OWUI's Follow-Up Generation was
+  fabricating "user" turns and its title/tag calls were routing to `reasoning`.
+
 ### Added (2026-07-02 — provenance tag)
 
 - **"Show your work" on every reply.** The router now tags each routed answer
