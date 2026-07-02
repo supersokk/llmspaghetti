@@ -10,6 +10,7 @@ Sits between Open WebUI and LiteLLM.
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -41,6 +42,7 @@ IMAGES_DIR       = INSTALL_DIR / "images"
 LITELLM_URL      = os.environ.get("LITELLM_URL", "http://litellm:4000")
 OLLAMA_URL       = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
 OPENAI_API_KEY   = os.environ.get("OPENAI_API_KEY", "")
+EMBED_MODEL      = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 
 
 def _server_ip() -> str:
@@ -169,8 +171,9 @@ def _utility_model() -> str:
 
 OVERRIDES_PATH   = INSTALL_DIR / "data" / "overrides_local.jsonl"
 _MSG_CAP         = 2000  # cap stored/displayed message length (local text)
-_overrides_cache: dict  = {}   # normalized message → corrected_role (active only)
-_overrides_mtime: float = 0.0
+_overrides_cache:   dict  = {}   # normalized message → corrected_role (exact, active)
+_overrides_vectors: list  = []   # [{"role","vec"}] for fuzzy kNN (active, model-matched)
+_overrides_mtime:   float = 0.0
 
 
 def _normalize_msg(m: str) -> str:
@@ -178,13 +181,16 @@ def _normalize_msg(m: str) -> str:
 
 
 def _load_overrides() -> dict:
-    """Replay the append-only log into {normalized_message: corrected_role}.
-    Later records win, so a tombstone removes and a re-correction re-adds."""
-    global _overrides_cache, _overrides_mtime
+    """Replay the append-only log into the exact-match map {normalized: role} and
+    the fuzzy vector index. Later records win, so a tombstone removes and a
+    re-correction re-adds. Vectors are kept only when their embedding_model
+    matches the current pin (cross-model vectors are incomparable)."""
+    global _overrides_cache, _overrides_vectors, _overrides_mtime
     try:
         mtime = OVERRIDES_PATH.stat().st_mtime
         if mtime != _overrides_mtime:
             cache: dict = {}
+            vecs:  dict = {}   # keyed by normalized message so tombstones can pop
             with open(OVERRIDES_PATH) as f:
                 for line in f:
                     line = line.strip()
@@ -199,17 +205,72 @@ def _load_overrides() -> dict:
                         continue
                     if rec.get("tombstoned"):
                         cache.pop(key, None)
+                        vecs.pop(key, None)
+                        continue
+                    cache[key] = rec.get("corrected_role")
+                    emb = rec.get("embedding")
+                    if emb and rec.get("embedding_model") == EMBED_MODEL:
+                        vecs[key] = {"role": rec.get("corrected_role"), "vec": emb}
                     else:
-                        cache[key] = rec.get("corrected_role")
-            _overrides_cache = cache
-            _overrides_mtime = mtime
+                        vecs.pop(key, None)  # re-correction without a usable vector
+            _overrides_cache   = cache
+            _overrides_vectors = list(vecs.values())
+            _overrides_mtime   = mtime
     except FileNotFoundError:
-        _overrides_cache = {}
+        _overrides_cache, _overrides_vectors = {}, []
     return _overrides_cache
 
 
 def _lookup_override(message: str) -> str | None:
+    """Exact (normalized) match — the top-priority, human-is-ground-truth tier."""
     return _load_overrides().get(_normalize_msg(message)) if message else None
+
+
+def _cosine(a: list, b: list) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na  = math.sqrt(sum(x * x for x in a))
+    nb  = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+async def _embed(text: str) -> list | None:
+    """Embed via Ollama (nomic-embed-text). Best-effort: returns None if the model
+    isn't pulled or the call fails, so fuzzy matching degrades gracefully."""
+    try:
+        resp = await _ext_client.post(
+            f"{OLLAMA_URL}/api/embeddings",
+            json={"model": EMBED_MODEL, "prompt": (text or "")[:_MSG_CAP]},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("embedding") or None
+    except Exception as e:
+        log.debug(f"embed failed ({e!r}) — fuzzy override skipped")
+        return None
+
+
+async def _fuzzy_override(message: str) -> str | None:
+    """Fuzzy (embedding kNN) match against stored corrections. Runs ONLY when
+    signal+keyword missed, so it never overrides a confident classification and
+    only costs an embed call on otherwise-fallback messages."""
+    _load_overrides()
+    if not _overrides_vectors or not message:
+        return None
+    qv = await _embed(message)
+    if not qv:
+        return None
+    threshold = float(_load_config().get("knn_threshold", 0.86))
+    best_role, best_sim = None, 0.0
+    for item in _overrides_vectors:
+        sim = _cosine(qv, item["vec"])
+        if sim > best_sim:
+            best_sim, best_role = sim, item["role"]
+    if best_role and best_sim >= threshold:
+        log.info(f"fuzzy override  sim={best_sim:.3f} ≥ {threshold} → {best_role}")
+        return best_role
+    return None
 
 
 def _make_correction(message: str, predicted_role: str, corrected_role: str,
@@ -936,9 +997,17 @@ async def api_add_correction(request: Request):
             status_code=400,
         )
 
-    _append_override(_make_correction(message, predicted, corrected, context, tier))
-    log.info(f"correction recorded: {predicted or '?'} → {corrected}  {message[:60]!r}")
-    return JSONResponse({"ok": True, "corrected_role": corrected, "message": message[:_MSG_CAP]})
+    rec = _make_correction(message, predicted, corrected, context, tier)
+    # Embed now so the fuzzy tier can match *similar* future messages (best-effort;
+    # exact match still works if embedding is unavailable).
+    emb = await _embed(message)
+    if emb:
+        rec["embedding"], rec["embedding_model"] = emb, EMBED_MODEL
+    _append_override(rec)
+    log.info(f"correction recorded: {predicted or '?'} → {corrected}"
+             f"{' (embedded)' if emb else ''}  {message[:60]!r}")
+    return JSONResponse({"ok": True, "corrected_role": corrected,
+                         "embedded": bool(emb), "message": message[:_MSG_CAP]})
 
 
 @app.get("/api/corrections")
@@ -1114,10 +1183,17 @@ async def proxy(request: Request, path: str):
                     log.info(f"{'override':<8} → {'single':<10} ({original!r} → {primary!r})")
                 else:
                     result: Classification = classify(last_msg, _ctx)
-                    primary, fallback      = _model_for_role(result.role)
-                    tier, role_name        = result.tier, result.role
+                    role_name, tier = result.role, result.tier
+                    # Fuzzy correction tier: only when signal+keyword missed, so a
+                    # learned correction can rescue an otherwise-general fallback
+                    # without ever overriding a confident classification.
+                    if tier == "fallback":
+                        fuzzy = await _fuzzy_override(last_msg)
+                        if fuzzy:
+                            role_name, tier = fuzzy, "override"
+                    primary, fallback = _model_for_role(role_name)
                     log.info(
-                        f"{result.tier:<8} → {result.role:<10} "
+                        f"{tier:<8} → {role_name:<10} "
                         f"({original!r} → {primary!r})  "
                         f"{result.latency_ms:.1f}ms  "
                         f"{last_msg[:70]!r}"

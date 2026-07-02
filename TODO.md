@@ -143,9 +143,11 @@ Local-first learning loop; full design in
   entries carry `id` + `context`.
 - ☐ **Phase 1 — capture UI.** Cockpit routing-log panel: per-decision
   "wrong → pick role" + undo (calls the correction API). Our own chat: native 👍/👎.
-- ☐ **Phase 1b — fuzzy match.** Embed messages (`nomic-embed-text` via Ollama),
-  cache the embedding per classification, kNN over overrides so *similar*
-  messages benefit (not just exact repeats).
+- ✅ **Phase 1b — fuzzy match.** Embed messages (`nomic-embed-text` via Ollama),
+  cosine-kNN over stored corrections so *similar* messages benefit (not just
+  exact repeats). Runs only on a fallback; `knn_threshold` configurable;
+  best-effort if the embed model isn't pulled. (Needs `spag pull nomic-embed-text`
+  on the box to activate.)
 - ☐ **Phase 2 — community.** Export (embedding + metadata, text stripped),
   maintainer merge pipeline with the **eval-gate** on a golden set, soft-merge.
 

@@ -17,6 +17,13 @@ single_model: null
 # leave it on unless you have a reason not to. Set false to hide the tag.
 show_provenance: true
 
+# Fuzzy-correction match threshold (cosine similarity, 0–1). When a message
+# isn't classified by signal/keyword, the router embeds it and checks learned
+# corrections; a neighbour at or above this similarity wins. Higher = stricter
+# (near-exact only); lower = looser (risks bleeding one correction into
+# unrelated messages). Needs the nomic-embed-text model pulled.
+knn_threshold: 0.86
+
 roles:
   image:     "local-default"
   code:      "local-default"

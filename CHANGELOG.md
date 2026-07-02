@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-02 — Flywheel Phase 1b: fuzzy corrections)
+
+- **Corrections now generalize to *similar* messages, not just verbatim repeats.**
+  New fuzzy `override` tier: when signal + keyword both miss, the router embeds
+  the message (`nomic-embed-text` via Ollama) and cosine-kNN-matches it against
+  stored corrections; a neighbour at/above `knn_threshold` (default 0.86,
+  configurable in `router_roles.yaml`) wins.
+- **Runs only on a fallback** — never overrides a confident signal/keyword match,
+  and only adds an embed call on otherwise-general messages. Exact human
+  corrections still sit above keyword.
+- **Best-effort:** if `nomic-embed-text` isn't pulled or the embed call fails,
+  the tier silently no-ops and exact match keeps working. Corrections are
+  embedded at capture time, pinned to the embed model (cross-model vectors are
+  incomparable). Pure-Python cosine — no new dependency.
+
 ### Added (2026-07-02 — Flywheel Phase 1: learned corrections)
 
 - **The router now learns from corrections, locally.** When a human records

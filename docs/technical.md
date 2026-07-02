@@ -156,9 +156,19 @@ The router learns from corrections. When a human records *"this route was wrong,
 it should be `<role>`"*, the correction is stored and applied to future identical
 messages — locally, instantly, no restart, nothing leaving the box.
 
-- **`override` tier, above the keyword classifier.** An explicit human correction
-  is ground truth for that message and beats the keyword guess. (Fuzzy, embedding
-  based matching for *similar* messages is Phase 1b — see the flywheel doc.)
+Two match tiers:
+
+- **Exact `override`, above the keyword classifier.** An explicit human
+  correction (normalized text match) is ground truth for that message and beats
+  the keyword guess.
+- **Fuzzy `override`, below keyword (only on a fallback).** When signal *and*
+  keyword both miss, the router embeds the message (`nomic-embed-text` via Ollama)
+  and cosine-kNN-matches it against stored corrections; a neighbour at/above
+  `knn_threshold` (default 0.86, configurable) wins. So *similar* messages
+  benefit ("tell me a joke" → "got any jokes?"), and it never overrides a
+  confident classification — it only rescues an otherwise-general fallback.
+  Best-effort: if the embed model isn't pulled, this tier silently no-ops and
+  exact match still works.
 - **Storage:** append-only `data/overrides_local.jsonl` using `CORRECTION_SCHEMA`.
   Undo is a **tombstone** record, never a hard delete — reversibility by design.
 - **API:** `POST /api/correction` (reference a routing-log `id`, or pass an
