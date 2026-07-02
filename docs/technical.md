@@ -164,7 +164,7 @@ Two match tiers:
 - **Fuzzy `override`, below keyword (only on a fallback).** When signal *and*
   keyword both miss, the router embeds the message (`nomic-embed-text` via Ollama)
   and cosine-kNN-matches it against stored corrections; a neighbour at/above
-  `knn_threshold` (default 0.86, configurable) wins. So *similar* messages
+  `knn_threshold` (default 0.6, configurable) wins. So *similar* messages
   benefit ("tell me a joke" → "got any jokes?"), and it never overrides a
   confident classification — it only rescues an otherwise-general fallback.
   Best-effort: if the embed model isn't pulled, this tier silently no-ops and

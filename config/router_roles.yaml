@@ -22,7 +22,12 @@ show_provenance: true
 # corrections; a neighbour at or above this similarity wins. Higher = stricter
 # (near-exact only); lower = looser (risks bleeding one correction into
 # unrelated messages). Needs the nomic-embed-text model pulled.
-knn_threshold: 0.86
+#
+# Calibrated on nomic-embed-text: real paraphrases of a stored correction score
+# ~0.66–0.77, clearly unrelated messages ~0.38–0.42. 0.6 sits in that gap —
+# catches rewordings, rejects unrelated. Tune per your data; watch the router
+# log for "fuzzy override best sim=..." near-misses.
+knn_threshold: 0.6
 
 roles:
   image:     "local-default"

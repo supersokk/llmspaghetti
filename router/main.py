@@ -265,7 +265,7 @@ async def _fuzzy_override(message: str) -> str | None:
     qv = await _embed(message)
     if not qv:
         return None
-    threshold = float(_load_config().get("knn_threshold", 0.86))
+    threshold = float(_load_config().get("knn_threshold", 0.6))
     best_role, best_sim = None, 0.0
     for item in _overrides_vectors:
         sim = _cosine(qv, item["vec"])
