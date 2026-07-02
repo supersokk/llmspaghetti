@@ -96,14 +96,24 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern, Optional[re.Pattern]]] = [
 
     # Code — programming tasks
     ("code", re.compile(
-        r'\b(debug|refactor|'
-        r'write\s+(?:a\s+)?(?:function|class|script|code|test|'
-        r'python|javascript|typescript|sql|bash|rust|go\s+function)|'
+        r'\b('
+        # direct action verbs on code artifacts
+        r'debug|refactor|implement|'
+        r'unit\s+test|sql\s+query|api\s+endpoint|'
         r'fix\s+(?:this\s+)?(?:bug|error|code)|'
         r'explain\s+(?:this\s+)?(?:code|function|class|algorithm)|'
-        r'implement|unit\s+test|sql\s+query|api\s+endpoint|'
         r'sort\s+(?:a\s+)?(?:list|array)|'
-        r'write\s+(?:me\s+)?(?:a\s+)?(?:function|class|method|program))\b',
+        # "write/create/make/build/generate [me] [a] … <code-noun>" — allow a
+        # few adjectives/nouns between the verb and the artifact so natural
+        # phrasing ("write a reverse hello world python script") still routes.
+        r'(?:write|create|make|build|generate)(?:\s+\w+){0,6}?\s+'
+        r'(?:function|class|method|script|program|module|snippet|'
+        r'cli|api|endpoint|query|regex)|'
+        # a programming language named as a script/program/etc.
+        r'(?:python|javascript|typescript|java|golang|rust|bash|shell|sql|'
+        r'html|css|php|ruby|kotlin|swift)\s+'
+        r'(?:script|program|function|code|snippet|class|method|file)'
+        r')\b',
         re.IGNORECASE
     ), None),
 

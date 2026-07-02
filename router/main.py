@@ -31,6 +31,7 @@ import uvicorn
 
 INSTALL_DIR      = Path(os.environ.get("INSTALL_DIR", "/opt/llmspaghetti"))
 CONFIG_PATH      = INSTALL_DIR / "config" / "router_roles.yaml"
+LITELLM_CFG_PATH = INSTALL_DIR / "config" / "litellm_config.yaml"
 QUOTAS_PATH      = INSTALL_DIR / "config" / "quotas.yaml"
 QUOTA_STATE_PATH = INSTALL_DIR / "data"   / "quota_state.json"
 MCP_CONFIG_PATH  = INSTALL_DIR / "config" / "mcp.json"
@@ -618,6 +619,35 @@ async def _image_sse(content: str) -> AsyncIterator[bytes]:
 # everywhere without per-client glue. Toggle with show_provenance in
 # router_roles.yaml (default on).
 
+_alias_cache: dict  = {}
+_alias_mtime: float = 0.0
+
+
+def _resolve_model_name(model: str) -> str:
+    """Resolve a LiteLLM alias (e.g. 'local-default') to the real model name.
+
+    Reads litellm_config.yaml (mtime-cached) so the tag shows the actual model
+    that answered — 'qwen2:0.5b' — not the internal alias. Provider prefix is
+    stripped for readability (ollama/qwen2:0.5b → qwen2:0.5b).
+    """
+    global _alias_cache, _alias_mtime
+    try:
+        mtime = LITELLM_CFG_PATH.stat().st_mtime
+        if mtime != _alias_mtime:
+            with open(LITELLM_CFG_PATH) as f:
+                cfg = yaml.safe_load(f) or {}
+            _alias_cache = {
+                e.get("model_name"): (e.get("litellm_params") or {}).get("model", "")
+                for e in cfg.get("model_list", [])
+                if e.get("model_name")
+            }
+            _alias_mtime = mtime
+    except (FileNotFoundError, yaml.YAMLError):
+        pass
+    real = _alias_cache.get(model) or model
+    return real.split("/", 1)[1] if "/" in real else real
+
+
 def _provenance_enabled() -> bool:
     return _load_config().get("show_provenance", True) is not False
 
@@ -625,12 +655,17 @@ def _provenance_enabled() -> bool:
 def _provenance_footer(model: str, role: str) -> str:
     """The visible footer line appended to an assistant reply."""
     role_part = f" · {role}" if role and role != "none" else ""
-    return f"\n\n`↳ answered by {model}{role_part}`"
+    return f"\n\n`↳ LLMSpaghetti → {_resolve_model_name(model)}{role_part}`"
 
 
 def _provenance_meta(model: str, role: str, fallback: bool) -> dict:
     """The machine-readable provenance object added to the response body."""
-    return {"router": "llmspaghetti", "model": model, "role": role, "fallback": fallback}
+    return {
+        "router":   "llmspaghetti",
+        "model":    _resolve_model_name(model),
+        "role":     role,
+        "fallback": fallback,
+    }
 
 
 # ── VRAM budget check ─────────────────────────────────────────────────────────

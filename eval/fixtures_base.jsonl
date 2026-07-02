@@ -29,3 +29,8 @@
 {"id": "edge-03", "message": "write me a story about a programmer", "expected": "general", "context": {}, "note": "write keyword but creative task -> general not code"}
 {"id": "edge-04", "message": "plan my week", "expected": "general", "context": {}, "note": "plan keyword but not technical -> general not reasoning"}
 {"id": "edge-05", "message": "what does this code do", "expected": "code", "context": {"has_code_blocks": true}, "note": "short message but code block context -> code"}
+{"id": "code-06", "message": "can you write a reverse hello world python script?", "expected": "code", "context": {}, "note": "adjectives between verb and noun -> code (regression: was general)"}
+{"id": "code-07", "message": "write me a python program that prints hello", "expected": "code", "context": {}, "note": "language + program noun -> code"}
+{"id": "code-08", "message": "build a small cli tool for me", "expected": "code", "context": {}, "note": "build + cli artifact -> code"}
+{"id": "edge-06", "message": "write a letter to my landlord", "expected": "general", "context": {}, "note": "GUARD: write + non-code noun must NOT be code"}
+{"id": "edge-07", "message": "write a short story about a dragon", "expected": "general", "context": {}, "note": "GUARD: creative writing must NOT be code"}

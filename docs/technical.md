@@ -92,8 +92,10 @@ Routing is silent, but never hidden. Every routed reply is tagged with the model
 that actually answered, in two forms:
 
 - **A visible footer** appended to the reply text —
-  `` `↳ answered by qwen2.5-coder:3b · code` `` — so it shows in any client
+  `` `↳ LLMSpaghetti → qwen2.5-coder:3b · code` `` — so it shows in any client
   (Open WebUI, VS Code, curl) and survives copy-paste. No per-client plugin.
+  The model name is resolved from its LiteLLM alias (e.g. `local-default` →
+  `qwen2:0.5b`) so it names the real model, not the internal alias.
 - **A machine-readable field** on the response body, `x_llmspaghetti`, so tools
   can parse the decision programmatically:
 

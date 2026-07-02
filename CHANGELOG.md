@@ -12,15 +12,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - **"Show your work" on every reply.** The router now tags each routed answer
   with the model that actually handled it — a visible footer
-  (`` `↳ answered by <model> · <role>` ``) plus a machine-readable
+  (`` `↳ LLMSpaghetti → <model> · <role>` ``) plus a machine-readable
   `x_llmspaghetti` field on the response body. Router-side, so it works in every
   client (Open WebUI, VS Code, curl) with no per-client plugin.
+- **Resolves the real model name** from its LiteLLM alias, so the tag shows
+  `qwen2:0.5b`, not the internal `local-default` placeholder.
 - **Fallback-aware:** if the primary model fails and a fallback answers, the tag
-  names the fallback and sets `"fallback": true`. Covers both streaming (footer
-  injected as a final SSE chunk before `[DONE]`) and non-streaming paths.
+  names the fallback and sets `"fallback": true`. Covers both streaming and
+  non-streaming. In streaming the footer is injected just *before* the
+  `finish_reason` chunk — clients (Open WebUI) drop content that arrives after
+  the stop, so a footer placed before `[DONE]` never rendered.
 - Toggle with `show_provenance` in `config/router_roles.yaml` (default on).
 - Implements the core "Nothing hidden — show your work" principle. See
   docs/technical.md.
+
+### Fixed (2026-07-02 — classifier code-routing miss)
+
+- **Code prompts with natural phrasing now route to `code`.** The keyword rule
+  required the code-noun immediately after the verb (`write a function` ✅) so
+  anything with adjectives in between missed (`write a reverse hello world
+  python script` → wrongly `general`). Loosened the write/create/make/build/
+  generate rule to allow a short run of words before the artifact, and added a
+  language+noun branch (`python script`, `javascript function`). Guarded against
+  false positives (`write a letter`, `write a short story` stay `general`).
+  Added regression fixtures (code-06..08, edge-06..07); all 36 pass. Surfaced by
+  the new provenance tag.
 
 ### Proven (2026-07-01 — first bare-metal GPU deployment)
 - **Multi-model routing proven on real GPU hardware.** Ryzen 3 3200G + RTX 2060
