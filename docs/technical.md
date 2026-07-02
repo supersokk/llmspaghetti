@@ -150,6 +150,26 @@ streaming, the footer is injected as a final SSE chunk just before `[DONE]`.
 Toggle with `show_provenance` in `config/router_roles.yaml` (default `true`).
 Leaving it on is the "nothing hidden" default; turning it off is a deliberate choice.
 
+## Learned corrections (Flywheel — Phase 1)
+
+The router learns from corrections. When a human records *"this route was wrong,
+it should be `<role>`"*, the correction is stored and applied to future identical
+messages — locally, instantly, no restart, nothing leaving the box.
+
+- **`override` tier, above the keyword classifier.** An explicit human correction
+  is ground truth for that message and beats the keyword guess. (Fuzzy, embedding
+  based matching for *similar* messages is Phase 1b — see the flywheel doc.)
+- **Storage:** append-only `data/overrides_local.jsonl` using `CORRECTION_SCHEMA`.
+  Undo is a **tombstone** record, never a hard delete — reversibility by design.
+- **API:** `POST /api/correction` (reference a routing-log `id`, or pass an
+  explicit `message`), `GET /api/corrections`, `DELETE /api/correction` (undo).
+  Routing-log entries carry `id` + `context` so any decision can become a
+  correction. The correction UI (a Cockpit routing-log panel) is the next step;
+  our own chat will call the same API with native 👍/👎.
+
+Full design — embedding kNN, community merge, the eval-gate — is in
+[PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md).
+
 ## MCP tools
 
 Roles can be granted MCP tools (`config/role_tools.yaml`), which the router

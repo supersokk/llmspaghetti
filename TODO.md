@@ -132,6 +132,23 @@ Long-term, community-driven. Full rationale in
 
 ---
 
+## 🔁 Routing flywheel — learn from corrections
+
+Local-first learning loop; full design in
+[PLANNED-routing-fixture-flywheel.md](docs/PLANNED-routing-fixture-flywheel.md).
+
+- ✅ **Phase 1 — capture engine (router-side).** `override` tier (exact match,
+  beats keyword), `overrides_local.jsonl` store, correction API
+  (`POST`/`GET`/`DELETE /api/correction`), tombstone-not-delete, routing-log
+  entries carry `id` + `context`.
+- ☐ **Phase 1 — capture UI.** Cockpit routing-log panel: per-decision
+  "wrong → pick role" + undo (calls the correction API). Our own chat: native 👍/👎.
+- ☐ **Phase 1b — fuzzy match.** Embed messages (`nomic-embed-text` via Ollama),
+  cache the embedding per classification, kNN over overrides so *similar*
+  messages benefit (not just exact repeats).
+- ☐ **Phase 2 — community.** Export (embedding + metadata, text stripped),
+  maintainer merge pipeline with the **eval-gate** on a golden set, soft-merge.
+
 ## 🧠 Community router model (long-term)
 
 A community-trained classifier to beat the keyword router. Full design +

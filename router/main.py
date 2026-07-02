@@ -72,7 +72,7 @@ _role_tools_mtime: float = 0.0
 
 # Add eval/ to path so we can import classifier
 sys.path.insert(0, str(Path(__file__).parent.parent / "eval"))
-from classifier import classify, Context, Classification  # noqa: E402
+from classifier import classify, Context, Classification, VALID_ROLES  # noqa: E402
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -154,6 +154,114 @@ def _utility_model() -> str:
     if isinstance(entry, dict):
         entry = entry.get("primary") or "local-default"
     return str(entry)
+
+
+# ── Learned corrections (Flywheel, Phase 1) ───────────────────────────────────
+# When a human says "this route was wrong, it should have been X", we store the
+# correction and apply it to future identical messages — locally, instantly, no
+# restart. See docs/PLANNED-routing-fixture-flywheel.md.
+#
+# Phase 1 is exact (normalized) text match, sitting ABOVE the keyword classifier:
+# an explicit human correction is ground truth for that message and beats the
+# keyword guess. Phase 1b will add embedding kNN so *similar* messages benefit.
+# Storage is append-only JSONL (CORRECTION_SCHEMA in eval/classifier.py); undo is
+# a tombstone record, never a hard delete — reversibility from day one.
+
+OVERRIDES_PATH   = INSTALL_DIR / "data" / "overrides_local.jsonl"
+_MSG_CAP         = 2000  # cap stored/displayed message length (local text)
+_overrides_cache: dict  = {}   # normalized message → corrected_role (active only)
+_overrides_mtime: float = 0.0
+
+
+def _normalize_msg(m: str) -> str:
+    return " ".join((m or "").lower().split())
+
+
+def _load_overrides() -> dict:
+    """Replay the append-only log into {normalized_message: corrected_role}.
+    Later records win, so a tombstone removes and a re-correction re-adds."""
+    global _overrides_cache, _overrides_mtime
+    try:
+        mtime = OVERRIDES_PATH.stat().st_mtime
+        if mtime != _overrides_mtime:
+            cache: dict = {}
+            with open(OVERRIDES_PATH) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    key = _normalize_msg(rec.get("message", ""))
+                    if not key:
+                        continue
+                    if rec.get("tombstoned"):
+                        cache.pop(key, None)
+                    else:
+                        cache[key] = rec.get("corrected_role")
+            _overrides_cache = cache
+            _overrides_mtime = mtime
+    except FileNotFoundError:
+        _overrides_cache = {}
+    return _overrides_cache
+
+
+def _lookup_override(message: str) -> str | None:
+    return _load_overrides().get(_normalize_msg(message)) if message else None
+
+
+def _make_correction(message: str, predicted_role: str, corrected_role: str,
+                     context: dict, tier_that_fired: str = "",
+                     tombstoned: bool = False) -> dict:
+    """Build a record matching CORRECTION_SCHEMA. embedding is filled in Phase 1b."""
+    return {
+        "predicted_role":  predicted_role,
+        "corrected_role":  corrected_role,
+        "tier_that_fired": tier_that_fired,
+        "context":         context or {},
+        "embedding":       None,
+        "embedding_model": None,
+        "message":         (message or "")[:_MSG_CAP],
+        "source":          "local",
+        "created_at":      time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "corroboration":   1,
+        "tombstoned":      tombstoned,
+    }
+
+
+def _append_override(rec: dict):
+    global _overrides_mtime
+    OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OVERRIDES_PATH, "a") as f:
+        f.write(json.dumps(rec) + "\n")
+    _overrides_mtime = 0.0  # force reload on next lookup
+
+
+def _ctx_to_dict(ctx: Context) -> dict:
+    return {
+        "has_file_attachment": ctx.has_file_attachment,
+        "has_image":           ctx.has_image,
+        "has_code_blocks":     ctx.has_code_blocks,
+        "token_count":         ctx.token_count,
+        "thread_role":         ctx.thread_role,
+    }
+
+
+def _route_log_entry(rm: dict, model: str | None, fallback: bool) -> dict:
+    """A routing-log entry carries enough (id, message, context, predicted role)
+    for a human to turn it into a correction."""
+    return {
+        "id":       rm["id"],
+        "ts":       time.time(),
+        "tier":     rm["tier"],
+        "role":     rm["role"],
+        "model":    model,
+        "message":  rm["message"][:_MSG_CAP],
+        "context":  rm["context"],
+        "fallback": fallback,
+    }
 
 
 # ── Quota management ─────────────────────────────────────────────────────────
@@ -791,6 +899,68 @@ async def api_routing_log():
     return JSONResponse({"entries": list(_routing_log)})
 
 
+@app.post("/api/correction")
+async def api_add_correction(request: Request):
+    """Record a human correction: 'this route was wrong, it should be <role>'.
+    Accepts either a routing-log `id` (we look up that decision) or explicit
+    `message`/`context`/`predicted_role`. Applies to future identical messages."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    corrected = str(data.get("corrected_role", "")).strip()
+    if corrected not in VALID_ROLES:
+        return JSONResponse(
+            {"ok": False, "error": f"corrected_role must be one of {sorted(VALID_ROLES)}"},
+            status_code=400,
+        )
+
+    message   = data.get("message")
+    predicted = data.get("predicted_role", "")
+    context   = data.get("context") or {}
+    tier      = data.get("tier_that_fired", "")
+
+    # Resolve from a routing-log id if the caller referenced a decision.
+    entry_id = data.get("id")
+    if entry_id and not message:
+        for e in _routing_log:
+            if e.get("id") == entry_id:
+                message, predicted = e.get("message"), e.get("role", "")
+                context, tier      = e.get("context") or {}, e.get("tier", "")
+                break
+
+    if not message:
+        return JSONResponse(
+            {"ok": False, "error": "provide `message` (+context) or a known routing-log `id`"},
+            status_code=400,
+        )
+
+    _append_override(_make_correction(message, predicted, corrected, context, tier))
+    log.info(f"correction recorded: {predicted or '?'} → {corrected}  {message[:60]!r}")
+    return JSONResponse({"ok": True, "corrected_role": corrected, "message": message[:_MSG_CAP]})
+
+
+@app.get("/api/corrections")
+async def api_list_corrections():
+    """Active (non-tombstoned) local overrides."""
+    active = _load_overrides()
+    return JSONResponse({"count": len(active), "active": active})
+
+
+@app.delete("/api/correction")
+async def api_undo_correction(message: str = ""):
+    """Undo a correction by tombstoning it (append-only, never hard-deleted)."""
+    if not message:
+        return JSONResponse({"ok": False, "error": "message query param required"}, status_code=400)
+    current = _load_overrides().get(_normalize_msg(message))
+    if current is None:
+        return JSONResponse({"ok": False, "error": "no active override for that message"}, status_code=404)
+    _append_override(_make_correction(message, "", current, {}, "", tombstoned=True))
+    log.info(f"correction tombstoned: {message[:60]!r}")
+    return JSONResponse({"ok": True, "tombstoned": message[:_MSG_CAP]})
+
+
 @app.get("/api/routing-mode")
 async def api_routing_mode():
     cfg = _load_config()
@@ -893,7 +1063,7 @@ async def proxy(request: Request, path: str):
     # Classification state — set inside the chat completions block
     primary_model:   str | None  = None
     fallback_model:  str | None  = None
-    route_meta:      tuple | None = None  # (tier, role, last_msg) — deferred log
+    route_meta:      dict | None = None  # {id,tier,role,message,context} — deferred log
     tools_injected:  bool         = False  # True when MCP tools were forced non-streaming
 
     if path == "v1/chat/completions" and request.method == "POST":
@@ -919,6 +1089,7 @@ async def proxy(request: Request, path: str):
                 routing_mode   = cfg.get("mode", "auto")
                 single_mdl     = cfg.get("single_model")
                 is_utility     = _is_utility_request(payload, request.headers, last_msg)
+                override_role  = None if is_utility else _lookup_override(last_msg)
 
                 # ── Routing mode ─────────────────────────────────────────────
                 if is_utility:
@@ -930,6 +1101,12 @@ async def proxy(request: Request, path: str):
                     fallback = None
                     tier, role_name = "utility", "utility"
                     log.info(f"{'utility':<8} → {primary:<14} (housekeeping — classification skipped)")
+                elif override_role:
+                    # A human corrected this exact message before — ground truth,
+                    # beats the keyword guess (Flywheel Phase 1).
+                    primary, fallback = _model_for_role(override_role)
+                    tier, role_name   = "override", override_role
+                    log.info(f"{'override':<8} → {role_name:<10} ({original!r} → {primary!r})  learned correction")
                 elif routing_mode == "single" and single_mdl:
                     primary  = str(single_mdl)
                     fallback = None
@@ -1012,7 +1189,13 @@ async def proxy(request: Request, path: str):
                 primary_model    = primary
                 fallback_model   = fallback
                 if not is_utility:
-                    route_meta   = (tier, role_name, last_msg)
+                    route_meta   = {
+                        "id":      secrets.token_hex(6),
+                        "tier":    tier,
+                        "role":    role_name,
+                        "message": last_msg,
+                        "context": _ctx_to_dict(_ctx),
+                    }
 
         except Exception as e:
             log.warning(f"classify error ({e!r}) — passing through unchanged")
@@ -1040,24 +1223,18 @@ async def proxy(request: Request, path: str):
 
     if is_streaming:
         if route_meta:
-            tier, role, last_msg = route_meta
-            _routing_log.appendleft({
-                "ts": time.time(), "tier": tier, "role": role,
-                "model": primary_model, "message": last_msg[:120], "fallback": False,
-            })
+            _routing_log.appendleft(_route_log_entry(route_meta, primary_model, False))
         fallback_log: dict | None = None
         if route_meta and fallback_model:
-            tier, role, last_msg = route_meta
             fallback_log = {
-                "ts": time.time(), "tier": "fallback", "role": role,
-                "model": fallback_model,
+                "id": route_meta["id"], "ts": time.time(), "tier": "fallback",
+                "role": route_meta["role"], "model": fallback_model,
                 "message": f"↳ fallback from {primary_model}",
-                "fallback": True,
+                "context": route_meta["context"], "fallback": True,
             }
         prov: dict | None = None
         if route_meta and primary_model and _provenance_enabled():
-            _tier, _role, _lm = route_meta
-            prov = {"primary": primary_model, "fallback": fallback_model, "role": _role}
+            prov = {"primary": primary_model, "fallback": fallback_model, "role": route_meta["role"]}
         return StreamingResponse(
             _stream_with_fallback(
                 request.method, path, fwd_headers, body,
@@ -1147,15 +1324,8 @@ async def proxy(request: Request, path: str):
                 tool_calls = next_tool_calls
 
     if route_meta:
-        tier, role, last_msg = route_meta
-        _routing_log.appendleft({
-            "ts":       time.time(),
-            "tier":     tier,
-            "role":     role,
-            "model":    fallback_model if used_fallback else primary_model,
-            "message":  last_msg[:120],
-            "fallback": used_fallback,
-        })
+        _routing_log.appendleft(_route_log_entry(
+            route_meta, fallback_model if used_fallback else primary_model, used_fallback))
 
     resp_headers = {
         k: v for k, v in upstream.headers.items()
@@ -1163,7 +1333,7 @@ async def proxy(request: Request, path: str):
     }
 
     # Provenance: name the model that actually answered (fallback-aware)
-    prov_role  = route_meta[1] if route_meta else ""
+    prov_role  = route_meta["role"] if route_meta else ""
     prov_model = fallback_model if used_fallback else primary_model
     add_prov   = bool(route_meta and prov_model and _provenance_enabled()
                       and upstream.status_code < 500)

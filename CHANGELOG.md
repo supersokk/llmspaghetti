@@ -8,6 +8,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-02 — Flywheel Phase 1: learned corrections)
+
+- **The router now learns from corrections, locally.** When a human records
+  "this route was wrong, it should be `<role>`", the router stores it and applies
+  it to future identical messages — instantly, no restart, nothing leaves the
+  box. First step of the [routing fixture flywheel](docs/PLANNED-routing-fixture-flywheel.md).
+- **New `override` tier**, above the keyword classifier: an explicit human
+  correction is ground truth for that message and beats the keyword guess.
+  Phase 1 is exact (normalized) text match; Phase 1b will add embedding kNN so
+  *similar* messages benefit.
+- **Correction API:** `POST /api/correction` (by routing-log `id` or explicit
+  `message`), `GET /api/corrections` (active overrides), `DELETE /api/correction`
+  (undo). Storage is append-only `overrides_local.jsonl` using the existing
+  `CORRECTION_SCHEMA`; **undo is a tombstone record, never a hard delete.**
+- Routing-log entries now carry `id` + `context` + predicted role so a decision
+  can be turned into a correction. Override replies still get the provenance tag;
+  the correction UI (Cockpit panel) is the next step.
+
 ### Added (2026-07-02 — utility request lane)
 
 - **Client housekeeping no longer routes as user intent.** Chat clients fire
