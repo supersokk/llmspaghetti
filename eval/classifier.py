@@ -117,7 +117,7 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern, Optional[re.Pattern]]] = [
         re.IGNORECASE
     ), None),
 
-    # Reasoning — deep thinking
+    # Reasoning — deep thinking + open-ended ideation / feedback
     ("reasoning", re.compile(
         r'\b(think\s+through|reason\s+(?:through|about)|'
         r'architect(?:ure)?|design\s+(?:a\s+)?system|'
@@ -128,7 +128,20 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern, Optional[re.Pattern]]] = [
         r'how\s+(?:would|should|do)\s+(?:i|we|you)\s+(?:migrate|refactor|redesign|restructure)|'
         r'plan\s+how\s+(?:i|we)\s+(?:would|should|could)\s+\w+|'
         r'why\s+does\s+.{0,30}\s+matter|'
-        r'help\s+me\s+(?:reason|think|plan|decide|choose|understand\s+why))\b',
+        r'help\s+me\s+(?:reason|think|plan|decide|choose|understand\s+why)|'
+        # open-ended ideation / feedback / opinion — "here's my idea, thoughts?"
+        # "what do you think" is scoped to a substantive object so trivia opinions
+        # ("what do you think about pineapple on pizza") stay general.
+        r'what\s+do\s+you\s+think\s+(?:of|about)\s+(?:my|this|the|our|your)\s+'
+        r'(?:idea|plan|design|approach|architecture|concept|code|project|proposal|'
+        r'essay|draft|strategy|solution|feature|model|structure|writing|story)|'
+        r'(?:your|any)\s+thoughts|thoughts(?=\s*[?])|'
+        r'give\s+me\s+(?:your\s+)?(?:feedback|thoughts|opinion|take)|'
+        r'feedback\s+on|critique|poke\s+holes|brainstorm|'
+        r'(?:evaluate|assess)\s+(?:my|this|the)\s+\w+|'
+        r'i\s+have\s+an\s+idea|'
+        r"here'?s\s+(?:an|my)\s+idea|"
+        r'is\s+this\s+a\s+good\s+idea|does\s+this\s+(?:idea|plan|approach|design))\b',
         re.IGNORECASE
     ), None),
 

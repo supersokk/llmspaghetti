@@ -36,3 +36,7 @@
 {"id": "edge-07", "message": "write a short story about a dragon", "expected": "general", "context": {}, "note": "GUARD: creative writing must NOT be code"}
 {"id": "doc-06", "message": "write a summary of this chat", "expected": "document", "context": {}, "note": "summary noun -> document (was general)"}
 {"id": "doc-07", "message": "give me a summary of our conversation", "expected": "document", "context": {}, "note": "summary -> document"}
+{"id": "reason-10", "message": "i have an idea for a game, sidescroller, flying a plane. thoughts?", "expected": "reasoning", "context": {}, "note": "open-ended ideation + thoughts? -> reasoning"}
+{"id": "reason-11", "message": "give me feedback on my business plan", "expected": "reasoning", "context": {}, "note": "feedback on a plan -> reasoning"}
+{"id": "reason-12", "message": "what do you think of this approach", "expected": "reasoning", "context": {}, "note": "opinion on a substantive object -> reasoning"}
+{"id": "edge-08", "message": "what do you think of pizza?", "expected": "general", "context": {}, "note": "GUARD: trivia opinion stays general, not reasoning"}
