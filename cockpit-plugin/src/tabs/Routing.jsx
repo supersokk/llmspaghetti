@@ -603,11 +603,11 @@ export default function Routing() {
   const [toolsSaving, setToolsSaving]   = useState(false);
 
   useEffect(() => {
-    cockpit.file(ROLES_PATH).read().then(yaml => {
+    cockpit.file(ROLES_PATH, { superuser: "try" }).read().then(yaml => {
       setRawYaml(yaml || "");
       setCfg(parseConfig(yaml || ""));
     });
-    cockpit.file(ROLE_TOOLS_PATH).read().then(yaml => {
+    cockpit.file(ROLE_TOOLS_PATH, { superuser: "try" }).read().then(yaml => {
       setRoleTools(parseRoleTools(yaml || ""));
     });
     run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'").then(raw => {
@@ -695,7 +695,7 @@ export default function Routing() {
     setToolsSaving(true);
     setAlert(null);
     try {
-      await cockpit.file(ROLE_TOOLS_PATH).replace(serializeRoleTools(roleTools));
+      await cockpit.file(ROLE_TOOLS_PATH, { superuser: "try" }).replace(serializeRoleTools(roleTools));
       setAlert({ type: "ok", msg: "Tool assignments saved — active on the next request" });
     } catch (e) {
       setAlert({ type: "err", msg: `Save failed: ${e.message}` });
@@ -709,7 +709,7 @@ export default function Routing() {
     setAlert(null);
     try {
       const yaml = view === "yaml" ? rawYaml : serializeConfig(cfg);
-      await cockpit.file(ROLES_PATH).replace(yaml);
+      await cockpit.file(ROLES_PATH, { superuser: "try" }).replace(yaml);
       setAlert({ type: "ok", msg: "Saved — router picks up changes on the next request" });
       setCfg(parseConfig(yaml));
       setRawYaml(yaml);

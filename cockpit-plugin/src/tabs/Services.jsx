@@ -462,7 +462,7 @@ export default function Services() {
       delete config.mcpServers[server.id];
     }
 
-    await cockpit.file(MCP_JSON_PATH).replace(JSON.stringify(config, null, 2) + "\n");
+    await cockpit.file(MCP_JSON_PATH, { superuser: "try" }).replace(JSON.stringify(config, null, 2) + "\n");
   };
 
   const handleMcpInstall = async (server) => {

@@ -357,8 +357,8 @@ function Gateway() {
   const [routes, setRoutes]   = useState([]);
 
   useEffect(() => {
-    cockpit.file(CONFIG_PATH).read().then(setConfig);
-    cockpit.file(KEY_PATH).read().then(k => setKey(k?.trim() || ""));
+    cockpit.file(CONFIG_PATH, { superuser: "try" }).read().then(setConfig);
+    cockpit.file(KEY_PATH, { superuser: "try" }).read().then(k => setKey(k?.trim() || ""));
   }, []);
 
   // Parse model_name entries from yaml for quick display
@@ -371,7 +371,7 @@ function Gateway() {
     setSaving(true);
     setAlert(null);
     try {
-      await cockpit.file(CONFIG_PATH).replace(config);
+      await cockpit.file(CONFIG_PATH, { superuser: "try" }).replace(config);
       await run("docker restart llmspaghetti-litellm");
       setAlert({ type: "ok", msg: "Config saved — LiteLLM restarted" });
     } catch (e) {
@@ -562,7 +562,7 @@ function Settings() {
   useEffect(() => {
     run("hostname").then(setHostname);
     run("timedatectl show -p Timezone --value").then(setTimezone);
-    cockpit.file(API_KEYS_PATH).read().then(raw => {
+    cockpit.file(API_KEYS_PATH, { superuser: "try" }).read().then(raw => {
       setApiKeys(parseEnvFile(raw || ""));
     }).catch(() => {});
   }, []);
@@ -585,7 +585,7 @@ function Settings() {
     setSaving(true);
     setAlert(null);
     try {
-      await cockpit.file(API_KEYS_PATH).replace(serializeEnvFile(apiKeys));
+      await cockpit.file(API_KEYS_PATH, { superuser: "try" }).replace(serializeEnvFile(apiKeys));
       // Restart router + LiteLLM so both pick up new keys from env_file
       await run(
         "docker restart llmspaghetti-litellm llmspaghetti-router 2>&1 || " +
