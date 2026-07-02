@@ -34,3 +34,5 @@
 {"id": "code-08", "message": "build a small cli tool for me", "expected": "code", "context": {}, "note": "build + cli artifact -> code"}
 {"id": "edge-06", "message": "write a letter to my landlord", "expected": "general", "context": {}, "note": "GUARD: write + non-code noun must NOT be code"}
 {"id": "edge-07", "message": "write a short story about a dragon", "expected": "general", "context": {}, "note": "GUARD: creative writing must NOT be code"}
+{"id": "doc-06", "message": "write a summary of this chat", "expected": "document", "context": {}, "note": "summary noun -> document (was general)"}
+{"id": "doc-07", "message": "give me a summary of our conversation", "expected": "document", "context": {}, "note": "summary -> document"}

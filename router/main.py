@@ -497,16 +497,18 @@ _CODE_FENCE = re.compile(r"```")
 
 
 def _extract(messages: list) -> tuple[str, Context]:
-    last_user = ""
-    has_code  = False
-    has_file  = False
-    has_image = False
-    tokens    = 0
+    last_user      = ""
+    last_user_code = False   # code fence in the CURRENT user turn only
+    has_file       = False
+    has_image      = False
+    tokens         = 0
 
     for msg in messages:
         role    = msg.get("role", "")
         content = msg.get("content", "")
 
+        # Collect this message's plain text (may be split across parts).
+        texts: list[str] = []
         if isinstance(content, list):
             for part in content:
                 if not isinstance(part, dict):
@@ -517,23 +519,25 @@ def _extract(messages: list) -> tuple[str, Context]:
                 elif ptype in ("file", "document"):
                     has_file = True
                 elif ptype == "text":
-                    text = part.get("text", "")
-                    tokens += len(text) // 4
-                    if _CODE_FENCE.search(text):
-                        has_code = True
-                    if role == "user":
-                        last_user = text
+                    texts.append(part.get("text", ""))
         elif isinstance(content, str):
-            tokens += len(content) // 4
-            if _CODE_FENCE.search(content):
-                has_code = True
-            if role == "user":
-                last_user = content
+            texts.append(content)
+
+        joined = "\n".join(t for t in texts if t)
+        tokens += len(joined) // 4
+
+        # Code detection is scoped to the latest USER message. Assistant replies
+        # routinely contain ```code``` fences; counting those made every follow-up
+        # in a thread that once touched code stick to the code role (e.g. "write a
+        # summary of this chat" → code). Only the user's current turn signals intent.
+        if role == "user" and joined:
+            last_user      = joined
+            last_user_code = bool(_CODE_FENCE.search(joined))
 
     return last_user, Context(
         has_file_attachment=has_file,
         has_image=has_image,
-        has_code_blocks=has_code,
+        has_code_blocks=last_user_code,
         token_count=tokens,
     )
 

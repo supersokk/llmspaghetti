@@ -134,7 +134,8 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern, Optional[re.Pattern]]] = [
 
     # Document — summarisation / analysis (without file attachment, lower confidence)
     ("document", re.compile(
-        r'\b(summari[sz]e|summarise|key\s+(?:points|takeaways)|'
+        r'\b(summar(?:y|ies|ise|ize|isation|ization)|'
+        r'key\s+(?:points|takeaways)|'
         r'extract\s+(?:all|the)|main\s+(?:points|ideas)|'
         r'what\s+does\s+(?:this|the)\s+(?:document|report|paper|article)\s+say)\b',
         re.IGNORECASE

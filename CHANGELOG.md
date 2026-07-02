@@ -35,8 +35,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   generate rule to allow a short run of words before the artifact, and added a
   language+noun branch (`python script`, `javascript function`). Guarded against
   false positives (`write a letter`, `write a short story` stay `general`).
-  Added regression fixtures (code-06..08, edge-06..07); all 36 pass. Surfaced by
+  Added regression fixtures (code-06..08, edge-06..07); all pass. Surfaced by
   the new provenance tag.
+- **Code-context no longer bleeds across a thread.** `_extract` was scanning
+  every message for ```` ``` ```` fences — including the assistant's own code
+  replies — so once a conversation showed any code, every later message stuck to
+  the `code` role ("write a summary of this chat" → code). Code detection is now
+  scoped to the user's current turn; assistant output doesn't count. User-pasted
+  code still routes to `code`.
+- **"summary" routes to `document`.** The document rule only matched
+  "summarise/summarize"; the noun "summary" fell through to general. Broadened to
+  `summar(y|ies|ise|ize|isation|ization)`. Added fixtures (doc-06..07); 38 pass.
 
 ### Proven (2026-07-01 — first bare-metal GPU deployment)
 - **Multi-model routing proven on real GPU hardware.** Ryzen 3 3200G + RTX 2060
