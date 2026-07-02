@@ -6,13 +6,7 @@
   "name": "llmspaghetti",
   "technology": "React",
   "menu": {
-    "llmspaghetti": {
-      "label": "LLMSpaghetti",
-      "order": 1
-    }
-  },
-  "dashboard": {
-    "llmspaghetti-main": {
+    "index": {
       "label": "LLMSpaghetti",
       "order": 1
     }

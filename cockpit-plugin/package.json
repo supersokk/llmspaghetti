@@ -5,7 +5,7 @@
   "scripts": {
     "build": "webpack --config webpack.config.js",
     "watch": "webpack --config webpack.config.js --watch",
-    "install-plugin": "npm run build && sudo cp -r dist/ /usr/share/cockpit/llmspaghetti/ && sudo cp manifest.json /usr/share/cockpit/llmspaghetti/ && sudo cp index.html /usr/share/cockpit/llmspaghetti/"
+    "install-plugin": "npm run build && sudo mkdir -p /usr/share/cockpit/llmspaghetti && sudo rm -rf /usr/share/cockpit/llmspaghetti/dist && sudo cp dist/llmspaghetti.js manifest.json index.html /usr/share/cockpit/llmspaghetti/"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

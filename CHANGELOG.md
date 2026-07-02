@@ -8,6 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (2026-07-02 — Cockpit plugin never loaded)
+
+- **The Cockpit plugin was broken end-to-end** (only surfaced when first opened
+  on hardware — it showed "Not found"). Two packaging bugs:
+  1. `install-plugin` ran `cp -r dist/`, which **nests** the bundle under
+     `.../llmspaghetti/dist/` when the dir already exists — so `index.html`
+     (which loads `llmspaghetti.js` from its own dir) kept serving a stale build.
+     Now copies `dist/llmspaghetti.js` flat and clears the stale `dist/`.
+  2. `manifest.json` menu keys were `llmspaghetti` / `llmspaghetti-main`, so
+     Cockpit looked for `llmspaghetti.html` (nonexistent) → "Not found".
+     Collapsed to a single `index` entry that loads the shipped `index.html`.
+
 ### Added (2026-07-02 — Flywheel Phase 1: correction UI)
 
 - **Cockpit correction panel.** The Routing → Routing log view now shows each
