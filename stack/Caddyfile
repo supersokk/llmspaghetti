@@ -49,6 +49,24 @@
         }
     }
 
+    # ── SpagDesk (native workspace — Phase 0/1 MVP, static/buildless) ────────
+    # Served at /desk/ ; its router calls go through /spag/* (below) so they
+    # don't collide with Open WebUI's own /api/*. See docs/PLANNED-spagdesk.md.
+    handle /desk/* {
+        uri strip_prefix /desk
+        root * /opt/llmspaghetti/spagdesk
+        file_server
+    }
+
+    # SpagDesk → router (chat /v1 + management /api) under one clean prefix.
+    handle /spag/* {
+        uri strip_prefix /spag
+        reverse_proxy localhost:5000 {
+            header_up Host {host}
+            request_buffers 64MB
+        }
+    }
+
     # ── Open WebUI ──────────────────────────────────────────────────────────
     # Catch-all — serves the main chat interface
     handle /* {

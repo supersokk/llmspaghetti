@@ -122,13 +122,21 @@ a thin client; paste the URL, done.
 
 ---
 
-## 🪟 Phase ∞ — Our own chat (end-game)
+## 🪟 SpagDesk — our own workspace client (building now)
 
-Long-term, community-driven. Full rationale in
-[PLANNED-client-strategy.md](docs/PLANNED-client-strategy.md).
+The router is the product; it needs the interface it was designed to have. Full
+vision + roadmap in [PLANNED-spagdesk.md](docs/PLANNED-spagdesk.md). Built
+MVP-first, buildless (static) until complexity earns a build step. OWUI stays in
+parallel.
 
-- ☐ Revisit only after the provenance tag and multi-model routing are solid
-- ☐ Rule until then: logic in the router, never in client-specific plugins
+- 🚧 **Phase 0 — terminal window.** Static single-page client, streamed chat via
+  `/v1`, served by Caddy at `/desk/`. (built, needs box test)
+- 🚧 **Phase 1 — router visible + reuse the loops.** Native Router Insight panel
+  (from `x_llmspaghetti`), inline ✎-fix correction (→ `/api/correction`).
+  (built, needs box test) · `intent: utility` for its own housekeeping (todo).
+- ☐ **Phase 2 — workspace shell** (left/center/right rails, files, projects).
+- ☐ **Phase 3+** — compare responses, image browser, MCP timeline, templates.
+- ☐ Rule throughout: logic in the router, the client stays thin.
 
 ---
 

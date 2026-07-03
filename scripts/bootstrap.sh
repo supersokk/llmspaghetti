@@ -103,6 +103,7 @@ if [[ -d "$SCRIPT_DIR/../console" ]]; then
   cp -r "$SCRIPT_DIR/../eval"      "$INSTALL_DIR/"
   cp -r "$SCRIPT_DIR/../config/."  "$INSTALL_DIR/config/"
   cp -r "$SCRIPT_DIR/../stack/."   "$INSTALL_DIR/"
+  cp -r "$SCRIPT_DIR/../spagdesk"  "$INSTALL_DIR/"   # SpagDesk native workspace (static)
   cp "$SCRIPT_DIR/gpu-detect.sh"            "$INSTALL_DIR/scripts/"
   cp "$SCRIPT_DIR/install-gpu-drivers.sh"   "$INSTALL_DIR/scripts/"
   cp "$SCRIPT_DIR/collect-stats.sh"         "$INSTALL_DIR/scripts/"  # dashboard live stats

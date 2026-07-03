@@ -23,6 +23,7 @@ All LLMSpaghetti documentation lives here. Start with the
 Forward-looking designs — problem, options, open questions. Kept current or
 folded into permanent docs once built.
 
+- [PLANNED-spagdesk.md](PLANNED-spagdesk.md) — the native workspace client (building now, MVP-first)
 - [PLANNED-client-strategy.md](PLANNED-client-strategy.md) — one smart endpoint, thin clients; our own chat as end-game
 - [PLANNED-model-management.md](PLANNED-model-management.md) — making pulled models + tools routable
 - [PLANNED-background-jobs.md](PLANNED-background-jobs.md) — local GPU does grunt work in the background

@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-03 — SpagDesk: our own workspace client, MVP)
+
+- **The router now has a native client.** SpagDesk is a buildless, static
+  single-page workspace served by Caddy at `/desk/`, alongside Open WebUI (not
+  replacing it). First step toward giving the router the interface it was
+  designed to have — see docs/PLANNED-spagdesk.md.
+- **MVP (Phase 0/1):** streamed chat through `/v1`; a native **Router Insight**
+  panel (role / model / fallback, from the `x_llmspaghetti` field — the thing
+  OWUI can't show); inline **✎ fix** corrections that call `/api/correction`
+  (the flywheel loop moves into the chat).
+- Router calls go through a `/spag/*` Caddy prefix, avoiding the clash with
+  OWUI's own `/api/*`. No build step — a single `index.html`, so iteration is
+  instant. Deployed by bootstrap.
+
 ### Fixed (2026-07-02 — Cockpit plugin never loaded)
 
 - **The Cockpit plugin was broken end-to-end** (only surfaced when first opened
