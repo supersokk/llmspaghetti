@@ -1322,9 +1322,16 @@ async def proxy(request: Request, path: str):
         except Exception as e:
             log.warning(f"classify error ({e!r}) — passing through unchanged")
 
+    # Strip hop-by-hop headers AND browser-only headers (Origin/Referer/Cookie):
+    # forwarding a browser's Origin to Ollama's /v1 trips its cross-origin check
+    # → 403 Forbidden (SpagDesk in a browser fails while curl works). Those headers
+    # are for the browser/CORS, never the upstream model API.
     fwd_headers = {
         k: v for k, v in request.headers.items()
-        if k.lower() not in ("host", "content-length", "transfer-encoding", "connection")
+        if k.lower() not in (
+            "host", "content-length", "transfer-encoding", "connection",
+            "origin", "referer", "cookie",
+        )
     }
 
     is_streaming = False
