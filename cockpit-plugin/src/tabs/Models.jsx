@@ -357,14 +357,16 @@ export default function Models() {
   }, []);
 
   const loadRunning = useCallback(async () => {
+    // /api/ps = models currently resident in VRAM. On a TRANSIENT fetch failure
+    // (empty output / parse error — common right when a model is loading and
+    // Ollama is busy) KEEP the last known state. Blanking to [] made every model
+    // flicker to grey. A genuine "nothing loaded" comes back as {"models":[]}.
+    const raw = await run("curl -sf http://localhost:11434/api/ps 2>/dev/null");
+    if (!raw) return;
     try {
-      const raw = await run("curl -sf http://localhost:11434/api/ps 2>/dev/null");
-      if (!raw) { setRunning([]); return; }
       const data = JSON.parse(raw);
-      setRunning(data.models || []);
-    } catch {
-      setRunning([]);
-    }
+      setRunning(Array.isArray(data.models) ? data.models : []);
+    } catch { /* keep last known state */ }
   }, []);
 
   const loadGpuInfo = useCallback(async () => {
