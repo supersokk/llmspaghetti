@@ -139,12 +139,18 @@ else
   success "Ollama already installed"
 fi
 
-# Configure Ollama: listen on all interfaces, use LLMSpaghetti model directory
+# Configure Ollama: listen on all interfaces, use LLMSpaghetti model directory.
+# You're the rule maker for how many models stay resident: OLLAMA_MAX_LOADED_MODELS
+# is how many Ollama keeps loaded at once, OLLAMA_KEEP_ALIVE=-1 keeps them loaded
+# until you unload them (no time-out). Overflow past VRAM spills to system RAM
+# (CPU) — slower, but loaded. Tune these to your hardware.
 mkdir -p /etc/systemd/system/ollama.service.d
 cat > /etc/systemd/system/ollama.service.d/llmspaghetti.conf << EOF
 [Service]
 Environment="OLLAMA_HOST=0.0.0.0:11434"
 Environment="OLLAMA_MODELS=${INSTALL_DIR}/models"
+Environment="OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-4}"
+Environment="OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1}"
 EOF
 systemctl daemon-reload
 systemctl enable --now ollama
