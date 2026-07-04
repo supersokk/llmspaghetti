@@ -43,8 +43,10 @@ For each `POST /v1/chat/completions` the router:
    and MCP tool injection if the role has installed tools.
 6. Strips any client-supplied `tools`/`tool_choice` — the router owns tool
    management, clients don't get to inject tools.
-7. Forwards to LiteLLM, streams the response back (re-wrapping as SSE when a
-   tool-call loop had to run non-streaming).
+7. Forwards to the right backend and streams the response back: **local Ollama
+   models go straight to Ollama's OpenAI API** (any pulled model works by its raw
+   name — no alias needed), **cloud models go through LiteLLM**. (Re-wraps as SSE
+   when a tool-call loop had to run non-streaming.)
 8. **Tags the reply with provenance** — which model actually answered (see below).
 
 The classifier ([eval/classifier.py](../eval/classifier.py)) is a tiered,

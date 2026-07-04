@@ -14,8 +14,11 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
   streaming + non-streaming. Toggle with `show_provenance`. Works in every
   client. See [technical.md](docs/technical.md#provenance--show-your-work).
 - ☐ Image routing (see Phase 1)
-- ☐ Add **Cerebras** as a cloud provider (free-tier keys; LiteLLM supports
-  `cerebras/<model>`) — add to Settings API-keys + wizard + litellm_config.
+- ✅ **Ollama-direct routing** — local models forward straight to Ollama's OpenAI
+  API by their raw name (any pulled model routable, no LiteLLM alias needed);
+  cloud goes via LiteLLM. Kills the alias-namespace friction.
+- ✅ Add **Cerebras** as a cloud provider — Settings API-key field + firstboot
+  litellm_config entries (`cerebras-llama-8b/70b`).
 
 ---
 

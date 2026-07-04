@@ -523,6 +523,7 @@ const API_KEY_FIELDS = [
   { key: "OPENAI_API_KEY",     label: "OpenAI API Key",     hint: "Enables GPT-4o, DALL-E 3, and other OpenAI models" },
   { key: "ANTHROPIC_API_KEY",  label: "Anthropic API Key",  hint: "Enables Claude Sonnet, Claude Opus" },
   { key: "GROQ_API_KEY",       label: "Groq API Key",       hint: "Enables Groq (ultra-fast inference — llama3, mixtral)" },
+  { key: "CEREBRAS_API_KEY",   label: "Cerebras API Key",   hint: "Enables Cerebras (ultra-fast cloud Llama — free tier at cloud.cerebras.ai)" },
   { key: "COHERE_API_KEY",     label: "Cohere API Key",     hint: "Enables Cohere Command models" },
   { key: "GEMINI_API_KEY",     label: "Google Gemini Key",  hint: "Enables Gemini Pro / Flash" },
   { key: "BRAVE_API_KEY",      label: "Brave Search Key",   hint: "Used by the Brave Search MCP tool" },

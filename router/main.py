@@ -844,13 +844,9 @@ _alias_cache: dict  = {}
 _alias_mtime: float = 0.0
 
 
-def _resolve_model_name(model: str) -> str:
-    """Resolve a LiteLLM alias (e.g. 'local-default') to the real model name.
-
-    Reads litellm_config.yaml (mtime-cached) so the tag shows the actual model
-    that answered — 'qwen2:0.5b' — not the internal alias. Provider prefix is
-    stripped for readability (ollama/qwen2:0.5b → qwen2:0.5b).
-    """
+def _load_aliases() -> dict:
+    """LiteLLM model_name → litellm_params.model (e.g. local-default → ollama/qwen2:0.5b,
+    gpt-4o → openai/gpt-4o). mtime-cached from litellm_config.yaml."""
     global _alias_cache, _alias_mtime
     try:
         mtime = LITELLM_CFG_PATH.stat().st_mtime
@@ -865,8 +861,31 @@ def _resolve_model_name(model: str) -> str:
             _alias_mtime = mtime
     except (FileNotFoundError, yaml.YAMLError):
         pass
-    real = _alias_cache.get(model) or model
+    return _alias_cache
+
+
+def _resolve_model_name(model: str) -> str:
+    """The real model name for display — resolve an alias, strip the provider
+    prefix (ollama/qwen2:0.5b → qwen2:0.5b)."""
+    real = _load_aliases().get(model) or model
     return real.split("/", 1)[1] if "/" in real else real
+
+
+def _route_backend(model: str):
+    """Pick the upstream for a model → (httpx client, model name to forward).
+
+    Local Ollama models go straight to Ollama's OpenAI API (raw name, any pulled
+    model works — no alias needed). Cloud/aliased models go through LiteLLM.
+    """
+    if not model:
+        return _client, model
+    real = _load_aliases().get(model)          # litellm_params.model, or None if not an alias
+    target = real or model
+    if target.startswith("ollama/"):
+        return _ollama_client, target.split("/", 1)[1]   # Ollama direct, bare tag
+    if real is not None or "/" in model:
+        return _client, model                  # configured alias or provider-prefixed → LiteLLM
+    return _ollama_client, model               # bare name, no alias → assume local Ollama model
 
 
 def _provenance_enabled() -> bool:
@@ -928,15 +947,24 @@ async def _check_vram_budget():
 
 # ── App + HTTP clients ────────────────────────────────────────────────────────
 
-_client:     Optional[httpx.AsyncClient] = None  # LiteLLM proxy
-_ext_client: Optional[httpx.AsyncClient] = None  # external calls (DALL-E, Ollama)
+_client:        Optional[httpx.AsyncClient] = None  # LiteLLM proxy (cloud models)
+_ollama_client: Optional[httpx.AsyncClient] = None  # Ollama's own OpenAI API (local models, direct)
+_ext_client:    Optional[httpx.AsyncClient] = None  # external calls (DALL-E, embeddings, /api/tags)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _client, _ext_client
+    global _client, _ollama_client, _ext_client
     _client = httpx.AsyncClient(
         base_url=LITELLM_URL,
+        timeout=httpx.Timeout(600.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+    )
+    # Local Ollama models are forwarded straight to Ollama's OpenAI-compatible API
+    # (OLLAMA_URL/v1/...), skipping the LiteLLM alias layer — so any pulled model is
+    # routable by its raw name. LiteLLM stays the gateway for cloud providers.
+    _ollama_client = httpx.AsyncClient(
+        base_url=OLLAMA_URL,
         timeout=httpx.Timeout(600.0),
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
     )
@@ -955,6 +983,7 @@ async def lifespan(app: FastAPI):
         log.info("image generation disabled  (no OPENAI_API_KEY)")
     yield
     await _client.aclose()
+    await _ollama_client.aclose()
     await _ext_client.aclose()
 
 
@@ -1100,14 +1129,15 @@ async def api_mcp_status():
 
 @app.get("/api/provider-health")
 async def api_provider_health(model: str = ""):
-    """Ping a single model via LiteLLM to check availability."""
+    """Ping a single model to check availability (via its real backend)."""
     if not model:
         return JSONResponse({"status": "error", "detail": "model param required"}, status_code=400)
+    client, fwd = _route_backend(model)
     t0 = time.monotonic()
     try:
-        resp = await _client.post(
+        resp = await client.post(
             "/v1/chat/completions",
-            json={"model": model, "messages": [{"role": "user", "content": "ping"}],
+            json={"model": fwd, "messages": [{"role": "user", "content": "ping"}],
                   "max_tokens": 1, "stream": False},
             timeout=8.0,
         )
@@ -1142,6 +1172,9 @@ async def proxy(request: Request, path: str):
     fallback_model:  str | None  = None
     route_meta:      dict | None = None  # {id,tier,role,message,context} — deferred log
     tools_injected:  bool         = False  # True when MCP tools were forced non-streaming
+    up_client        = _client            # upstream for the primary (LiteLLM or Ollama-direct)
+    fb_client        = _client            # upstream for the fallback
+    fb_fwd:  str | None = None            # fallback model name as forwarded to its backend
 
     if path == "v1/chat/completions" and request.method == "POST":
         try:
@@ -1256,7 +1289,12 @@ async def proxy(request: Request, path: str):
 
                 if not is_utility:
                     _increment_quota(primary)
-                payload["model"] = primary
+
+                # ── Pick the backend: local → Ollama direct, cloud → LiteLLM ──
+                up_client, up_fwd = _route_backend(primary)
+                payload["model"]  = up_fwd
+                if fallback:
+                    fb_client, fb_fwd = _route_backend(fallback)
 
                 # ── MCP tool injection ────────────────────────────────────────
                 tool_schemas = _tools_for_role(role_name)
@@ -1300,7 +1338,7 @@ async def proxy(request: Request, path: str):
     if fallback_model:
         try:
             fb_payload         = json.loads(body)
-            fb_payload["model"] = fallback_model
+            fb_payload["model"] = fb_fwd or fallback_model  # forwarded name for its backend
             fallback_body       = json.dumps(fb_payload).encode()
         except Exception:
             pass
@@ -1323,13 +1361,14 @@ async def proxy(request: Request, path: str):
             _stream_with_fallback(
                 request.method, path, fwd_headers, body,
                 dict(request.query_params), fallback_body, fallback_log, prov,
+                up_client, fb_client,
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     # ── Non-streaming: try primary, retry with fallback on 5xx ────────────────
-    upstream = await _client.request(
+    upstream = await up_client.request(
         method=request.method,
         url=f"/{path}",
         headers=fwd_headers,
@@ -1344,7 +1383,7 @@ async def proxy(request: Request, path: str):
             f"retrying with fallback {fallback_model!r}"
         )
         try:
-            upstream      = await _client.request(
+            upstream      = await fb_client.request(
                 method=request.method,
                 url=f"/{path}",
                 headers=fwd_headers,
@@ -1385,7 +1424,7 @@ async def proxy(request: Request, path: str):
                                   "stream": False}
                 follow_payload.pop("tools", None)
                 follow_payload.pop("tool_choice", None)
-                follow_resp = await _client.request(
+                follow_resp = await up_client.request(
                     method="POST",
                     url=f"/{path}",
                     headers=fwd_headers,
@@ -1465,7 +1504,11 @@ async def _stream_with_fallback(
     fallback_body: bytes | None = None,
     fallback_log: dict | None = None,
     prov: dict | None = None,
+    client=None,
+    fb_client=None,
 ) -> AsyncIterator[bytes]:
+    client    = client or _client        # primary backend (LiteLLM or Ollama-direct)
+    fb_client = fb_client or _client      # fallback backend
     # prov = {"primary": <model>, "fallback": <model|None>, "role": <role>} or None.
     # When set, we intercept the SSE line stream and inject a provenance footer
     # event just before the terminal [DONE], naming whichever model actually
@@ -1512,7 +1555,7 @@ async def _stream_with_fallback(
                     pass
             yield (line + "\n\n").encode()
 
-    async with _client.stream(
+    async with client.stream(
         method=method, url=f"/{path}", headers=headers, content=body, params=params,
     ) as resp:
         if resp.status_code >= 500 and fallback_body is not None:
@@ -1522,7 +1565,7 @@ async def _stream_with_fallback(
             )
             if fallback_log:
                 _routing_log.appendleft(fallback_log)
-            async with _client.stream(
+            async with fb_client.stream(
                 method=method, url=f"/{path}", headers=headers,
                 content=fallback_body, params=params,
             ) as fb_resp:

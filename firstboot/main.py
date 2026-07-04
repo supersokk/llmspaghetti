@@ -151,6 +151,21 @@ def write_litellm_config(form_data):
             "",
         ]
 
+    if form_data.get("cerebras_key"):
+        lines += [
+            "  # Cerebras (ultra-fast cloud inference)",
+            "  - model_name: cerebras-llama-8b",
+            "    litellm_params:",
+            "      model: cerebras/llama3.1-8b",
+            '      api_key: "${CEREBRAS_API_KEY}"',
+            "",
+            "  - model_name: cerebras-llama-70b",
+            "    litellm_params:",
+            "      model: cerebras/llama-3.3-70b",
+            '      api_key: "${CEREBRAS_API_KEY}"',
+            "",
+        ]
+
     lines += [
         "litellm_settings:",
         "  drop_params: true",

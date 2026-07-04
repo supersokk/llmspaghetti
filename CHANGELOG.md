@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (2026-07-03 — Ollama-direct routing + Cerebras)
+
+- **Local models now route straight to Ollama, by their raw name.** The router
+  forwards local Ollama models to Ollama's own OpenAI-compatible API
+  (`OLLAMA_URL/v1`), skipping the LiteLLM alias layer; **cloud models still go
+  through LiteLLM**. So any pulled model is assignable to any role by its real
+  name (`qwen2.5:3b`, `freaky-coderzzzy:14b`) — no `model_name` alias, no
+  wildcard, no "Invalid model name". `_route_backend()` picks the backend per
+  model; the fallback is backend-aware; provider-health pings the right backend.
+- **The Routing dropdown lists both** — LiteLLM aliases + cloud (`/v1/models`)
+  *and* every installed Ollama model (raw). Pick either; both route.
+- **Cerebras added as a cloud provider** — Settings API-key field
+  (`CEREBRAS_API_KEY`) + firstboot litellm_config entries (`cerebras-llama-8b`,
+  `cerebras-llama-70b`, free tier at cloud.cerebras.ai). Routes via LiteLLM like
+  any cloud model.
+
 ### Added (2026-07-03 — SpagDesk: our own workspace client, MVP)
 
 - **The router now has a native client.** SpagDesk is a buildless, static
