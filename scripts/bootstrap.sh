@@ -149,7 +149,7 @@ cat > /etc/systemd/system/ollama.service.d/llmspaghetti.conf << EOF
 [Service]
 Environment="OLLAMA_HOST=0.0.0.0:11434"
 Environment="OLLAMA_MODELS=${INSTALL_DIR}/models"
-Environment="OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-4}"
+Environment="OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-6}"
 Environment="OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1}"
 EOF
 systemctl daemon-reload
