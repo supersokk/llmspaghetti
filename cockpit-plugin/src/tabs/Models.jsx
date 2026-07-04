@@ -396,11 +396,13 @@ export default function Models() {
     setBusy(b => ({ ...b, [name]: "loading" }));
     setAlert(null);
     try {
-      // Preload via Ollama API (keep alive 10 min)
+      // Load and KEEP it resident (keep_alive:-1). A per-request keep_alive
+      // overrides OLLAMA_KEEP_ALIVE, so a fixed duration here would fight the
+      // user's "keep loaded" policy — "Load" means load and hold.
       await run(`curl -sf -X POST http://localhost:11434/api/generate \\
-        -d '{"model":"${name}","keep_alive":"10m"}' > /dev/null 2>&1`);
+        -d '{"model":"${name}","keep_alive":-1}' > /dev/null 2>&1`);
       await loadRunning();
-      setAlert({ type: "ok", msg: `${name} loaded into VRAM` });
+      setAlert({ type: "ok", msg: `${name} loaded into VRAM (kept resident)` });
     } finally {
       setBusy(b => { const n = { ...b }; delete n[name]; return n; });
     }
