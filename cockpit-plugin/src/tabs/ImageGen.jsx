@@ -7,7 +7,7 @@
  * The user chooses; the tab informs. Writes config/image.yaml (router hot-reloads).
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 const cockpit = window.cockpit || {
   spawn: () => ({ stream: () => {}, then: (f) => { f(""); return { catch: () => {} }; }, catch: () => {} }),
@@ -78,6 +78,42 @@ function comfyDest(path) {
   return { folder: "checkpoints", standalone: true, kind: "checkpoint" };   // aio/, checkpoints/, or repo root
 }
 
+// Module-level download manager. Cockpit UNMOUNTS a tab's component when you switch
+// away, which would destroy per-component download state (and the progress bar)
+// even though the wget keeps running. Living at module scope, this singleton and
+// its running process survive tab switches, so the bar and the completion result
+// persist. Components subscribe to get live updates while they're mounted.
+const downloadMgr = {
+  state: null,               // {id, pct, label, phase:"run"|"done"|"error", msg} | null
+  listeners: new Set(),
+  subscribe(fn) { this.listeners.add(fn); fn(this.state); return () => this.listeners.delete(fn); },
+  _set(s) { this.state = s; this.listeners.forEach(fn => { try { fn(s); } catch {} }); },
+  busy() { return !!(this.state && this.state.phase === "run"); },
+  clear() { if (this.state && this.state.phase !== "run") this._set(null); },
+  start(comfyDir, id, destRel, url, sizeLabel, doneMsg) {
+    if (this.busy()) return false;
+    this._set({ id, pct: null, label: "starting…", phase: "run" });
+    const cmd =
+      `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; ` +
+      `out="$d/models/${destRel}"; mkdir -p "\$(dirname "$out")"; ` +
+      `wget --progress=dot:mega -O "$out" '${url}'`;
+    const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "out" });
+    proc.stream(d => {
+      const tail = d.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
+      const m = tail.match(/(\d+)%/);
+      this._set({ id, pct: m ? parseInt(m[1], 10) : (this.state ? this.state.pct : null),
+                  label: sizeLabel || "", phase: "run" });
+    });
+    proc.then(
+      () => { this._set({ id, pct: 100, phase: "done", msg: doneMsg || "Downloaded." });
+              setTimeout(() => this.clear(), 12000); },
+      (e) => { this._set({ id, phase: "error", msg: `Download failed: ${e && e.message || e}` });
+               setTimeout(() => this.clear(), 12000); },
+    );
+    return true;
+  },
+};
+
 function serializeConfig(c) {
   return [
     "# LLMSpaghetti — Active image-generation settings",
@@ -103,7 +139,7 @@ export default function ImageGen() {
   const [cfg, setCfg]           = useState(null);          // active config (raw file)
   const [comfy, setComfy]       = useState({ ok: null, vramGb: 0, gpu: "" });
   const [installed, setInstalled] = useState(new Set());   // ckpt filenames ComfyUI sees
-  const [dl, setDl]             = useState(null);          // {id,pct,label} active download
+  const [dl, setDl]             = useState(downloadMgr.state);  // from the module-level manager (survives tab switches)
   const [alert, setAlert]       = useState(null);
   const [testPrompt, setTestPrompt] = useState("a red fox in a snowy forest, cinematic");
   const [testing, setTesting]   = useState(false);
@@ -135,6 +171,21 @@ export default function ImageGen() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  // Subscribe to the module-level download manager so the progress bar reappears
+  // (with live %) whenever this tab is mounted, even after switching away and back.
+  useEffect(() => downloadMgr.subscribe(setDl), []);
+
+  // When a download finishes, surface the result and refresh the installed list.
+  const prevPhase = useRef(null);
+  useEffect(() => {
+    const phase = dl ? dl.phase : null;
+    if (prevPhase.current === "run" && (phase === "done" || phase === "error")) {
+      setAlert(phase === "done" ? { type: "ok", msg: dl.msg } : { type: "err", msg: dl.msg });
+      loadAll();
+    }
+    prevPhase.current = phase;
+  }, [dl, loadAll]);
+
   const saveCfg = async (next) => {
     setCfg(next);
     try {
@@ -158,27 +209,13 @@ export default function ImageGen() {
   // the logged-in user (no superuser) so ~/ComfyUI resolves to THEIR home and the
   // files are owned correctly. Shared by the catalog cards and the HuggingFace box.
   const downloadFile = (id, destRel, url, sizeLabel, doneMsg) => {
-    if (dl) { setAlert({ type: "err", msg: `Already downloading ${dl.id} — let it finish.` }); return; }
+    if (downloadMgr.busy()) {
+      setAlert({ type: "err", msg: `Already downloading ${dl && dl.id} — let it finish.` });
+      return;
+    }
     const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
-    setDl({ id, pct: null, label: "starting…" });
     setAlert(null);
-    const cmd =
-      `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; ` +
-      `out="$d/models/${destRel}"; mkdir -p "\$(dirname "$out")"; ` +
-      `wget --progress=dot:mega -O "$out" '${url}'`;
-    const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "out" });
-    proc.stream(d => {
-      const tail = d.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
-      const m = tail.match(/(\d+)%/);
-      setDl(prev => ({ id, pct: m ? parseInt(m[1], 10) : (prev ? prev.pct : null), label: sizeLabel || "" }));
-    });
-    const finish = (ok, err) => {
-      setDl(null);
-      setAlert(ok ? { type: "ok", msg: doneMsg || "Downloaded." }
-                  : { type: "err", msg: `Download failed: ${err && err.message || err}` });
-      loadAll();
-    };
-    proc.then(() => finish(true), (e) => finish(false, e));
+    downloadMgr.start(comfyDir, id, destRel, url, sizeLabel, doneMsg);
   };
 
   const download = (eng) => {
@@ -265,6 +302,7 @@ export default function ImageGen() {
   // Checkpoints ComfyUI sees that aren't preset catalog engines (downloaded/custom).
   const catalogFiles = new Set(catalog.engines.map(e => e.model_file));
   const customModels = [...installed].filter(m => m && !catalogFiles.has(m));
+  const downloading = !!(dl && dl.phase === "run");
 
   // ── Render ──────────────────────────────────────────────────────────────────
   const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
@@ -286,6 +324,43 @@ export default function ImageGen() {
         <div style={{ ...card, borderColor: alert.type === "ok" ? C.green : C.red,
                       color: alert.type === "ok" ? C.green : C.red, fontSize: "0.85rem" }}>
           {alert.msg}
+        </div>
+      )}
+
+      {/* Persistent download banner — reads the module-level manager, so it's here
+          with live progress (or the ✓/⚠ result) even after switching tabs and back. */}
+      {dl && (
+        <div style={{ ...card, borderColor: dl.phase === "error" ? C.red
+                                          : dl.phase === "done"  ? C.green : C.accent }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.7rem",
+                        marginBottom: dl.phase === "run" ? "0.55rem" : 0 }}>
+            <span style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: C.text }}>
+              {dl.phase === "run" ? "↓ Downloading " : dl.phase === "done" ? "✓ " : "⚠ "}
+              <span style={{ fontFamily: "monospace",
+                             color: dl.phase === "error" ? C.red : C.accent2 }}>{dl.id}</span>
+            </span>
+            {dl.phase === "run" && (
+              <span style={{ fontSize: "0.8rem", color: C.dim, fontFamily: "monospace" }}>
+                {dl.pct != null ? `${dl.pct}%` : ""} {dl.label}
+              </span>
+            )}
+          </div>
+          {dl.phase === "run" && (
+            <div style={{ height: 8, background: C.bg, borderRadius: 5, overflow: "hidden",
+                          border: `1px solid ${C.border}` }}>
+              <div style={{ height: "100%", width: dl.pct != null ? `${dl.pct}%` : "100%",
+                            background: C.accent, transition: "width 0.3s ease",
+                            opacity: dl.pct == null ? 0.5 : 1 }} />
+            </div>
+          )}
+          {dl.phase === "run" && (
+            <div style={{ fontSize: "0.72rem", color: C.dim, marginTop: "0.4rem" }}>
+              Runs in the background — safe to switch tabs; this bar is here when you come back.
+            </div>
+          )}
+          {dl.phase !== "run" && (
+            <div style={{ fontSize: "0.8rem", color: dl.phase === "error" ? C.red : C.dim }}>{dl.msg}</div>
+          )}
         </div>
       )}
 
@@ -355,7 +430,7 @@ export default function ImageGen() {
                 const isInstalled = installed.has(eng.model_file);
                 const isActive = cfg && cfg.engine === eng.id;
                 const f = fit(eng.vram_gb, comfy.vramGb);
-                const dling = dl && dl.id === eng.id;
+                const dling = dl && dl.id === eng.id && dl.phase === "run";
                 return (
                   <div key={eng.id} style={{ background: C.bg, border: `1px solid ${isActive ? C.accent : C.border}`,
                                              borderRadius: 8, padding: "0.75rem 0.9rem" }}>
@@ -374,11 +449,11 @@ export default function ImageGen() {
                           {isActive ? "in use" : "Activate"}
                         </button>
                       ) : (
-                        <button disabled={!!dl} onClick={() => download(eng)}
+                        <button disabled={downloading} onClick={() => download(eng)}
                           style={{ padding: "0.32rem 0.85rem", fontSize: "0.78rem", fontWeight: 600,
                                    border: `1px solid ${C.border}`, borderRadius: 6,
-                                   cursor: dl ? "not-allowed" : "pointer",
-                                   background: "transparent", color: C.text, opacity: dl ? 0.6 : 1 }}>
+                                   cursor: downloading ? "not-allowed" : "pointer",
+                                   background: "transparent", color: C.text, opacity: downloading ? 0.6 : 1 }}>
                           ↓ Download {eng.files[0] && eng.files[0].size_gb ? `(${eng.files[0].size_gb} GB)` : ""}
                         </button>
                       )}
@@ -477,7 +552,7 @@ export default function ImageGen() {
         {hfFiles && hfFiles.files.length > 0 && (
           <div style={{ marginTop: "0.85rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {hfFiles.files.map(f => {
-              const dling = dl && dl.id === f.path;
+              const dling = dl && dl.id === f.path && dl.phase === "run";
               return (
                 <div key={f.path} style={{ background: C.bg, border: `1px solid ${C.border}`,
                                            borderRadius: 8, padding: "0.55rem 0.8rem" }}>
@@ -488,14 +563,14 @@ export default function ImageGen() {
                       {f.standalone ? "✅ ready" : `⚠ ${f.kind}`}
                     </span>
                     <span style={{ fontSize: "0.72rem", color: C.dim }}>→ models/{f.folder}/</span>
-                    <button disabled={!!dl} onClick={() => downloadFile(
+                    <button disabled={downloading} onClick={() => downloadFile(
                         f.path, `${f.folder}/${f.name}`, f.url, "",
                         f.standalone
                           ? `${f.name} → models/${f.folder}/. Activate it under “Installed models”.`
                           : `${f.name} → models/${f.folder}/ (a ${f.kind} component — needs its siblings + a workflow).`)}
                       style={{ padding: "0.28rem 0.75rem", fontSize: "0.76rem", fontWeight: 600, border: "none",
-                               borderRadius: 6, cursor: dl ? "not-allowed" : "pointer",
-                               background: C.accent, color: "white", opacity: dl ? 0.5 : 1 }}>
+                               borderRadius: 6, cursor: downloading ? "not-allowed" : "pointer",
+                               background: C.accent, color: "white", opacity: downloading ? 0.5 : 1 }}>
                       ↓ Download
                     </button>
                   </div>
