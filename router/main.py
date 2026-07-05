@@ -14,7 +14,6 @@ import math
 import os
 import re
 import secrets
-import socket
 import sys
 import time
 from collections import deque
@@ -60,18 +59,13 @@ COMFYUI_NEGATIVE = os.environ.get(
 )
 
 
-def _server_ip() -> str:
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "localhost"
-
-
-IMAGES_SERVE_URL = os.environ.get("IMAGES_SERVE_URL") or f"http://{_server_ip()}/images"
+# Root-relative by default: an inline markdown image `![](/images/x.png)` resolves
+# against the origin the browser loaded the page from (the Caddy host), which
+# proxies /images/* to this router. Absolute-URL auto-detection is wrong from
+# inside a container (it returns a docker-internal IP the browser can't reach);
+# set IMAGES_SERVE_URL explicitly only if you need an absolute URL for a client
+# that isn't behind the same reverse proxy.
+IMAGES_SERVE_URL = os.environ.get("IMAGES_SERVE_URL") or "/images"
 
 # In-memory routing log — last 50 decisions
 _routing_log: deque = deque(maxlen=50)
