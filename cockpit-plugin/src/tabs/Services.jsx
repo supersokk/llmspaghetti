@@ -57,11 +57,15 @@ const SERVICES = [
     id:          "comfyui",
     name:        "ComfyUI",
     icon:        "🎨",
-    desc:        "Local image generation — pairs with the image routing role.",
+    desc:        "Local image generation — pairs with the image routing role. Installs natively (host service, uses the GPU directly like Ollama).",
     port:        8188,
-    container:   "llmspaghetti-comfyui",
     category:    "Image Generation",
-    install_cmd: "docker run -d --gpus all --name llmspaghetti-comfyui -p 8188:8188 -v /opt/llmspaghetti/comfyui:/root/comfyui ghcr.io/ai-dock/comfyui:latest-cuda",
+    // Native (host systemd service), not Docker: consistent with Ollama, uses the
+    // GPU directly (no nvidia-container-toolkit). Status/actions go through
+    // systemctl; install runs our idempotent setup script.
+    native:      true,
+    service:     "comfyui",
+    install_cmd: "bash /opt/llmspaghetti/scripts/comfyui-setup.sh 2>&1 | tail -15",
     requires_gpu: true,
   },
   {
@@ -382,6 +386,16 @@ export default function Services() {
   const refresh = useCallback(async () => {
     const checks = await Promise.all(
       SERVICES.map(async svc => {
+        if (svc.native) {
+          // Host systemd service (e.g. ComfyUI): active → running, unit present but
+          // stopped → exited (installed), no unit → not-found (not installed).
+          const active = await run(`systemctl is-active ${svc.service} 2>/dev/null`);
+          if (active === "active") return [svc.id, "running"];
+          const exists = await run(
+            `systemctl list-unit-files ${svc.service}.service --no-legend 2>/dev/null | grep -c ${svc.service} || echo 0`
+          );
+          return [svc.id, parseInt(exists, 10) > 0 ? "exited" : "not-found"];
+        }
         const out = await run(
           `docker inspect --format '{{.State.Status}}' ${svc.container} 2>/dev/null`
         );
@@ -430,12 +444,24 @@ export default function Services() {
     appendLog(`${action} ${svc.name}…`);
     try {
       let cmd;
-      switch (action) {
-        case "install": cmd = svc.install_cmd; break;
-        case "start":   cmd = `docker start ${svc.container}`; break;
-        case "stop":    cmd = `docker stop ${svc.container}`; break;
-        case "remove":  cmd = `docker stop ${svc.container} 2>/dev/null; docker rm ${svc.container}`; break;
-        default: return;
+      if (svc.native) {
+        // Host systemd service — install runs our setup script; the rest are systemctl.
+        // Removing keeps the ComfyUI files (GBs), just tears down the service.
+        switch (action) {
+          case "install": cmd = svc.install_cmd; break;
+          case "start":   cmd = `systemctl start ${svc.service}`; break;
+          case "stop":    cmd = `systemctl stop ${svc.service}`; break;
+          case "remove":  cmd = `systemctl disable --now ${svc.service} 2>/dev/null; rm -f /etc/systemd/system/${svc.service}.service; systemctl daemon-reload`; break;
+          default: return;
+        }
+      } else {
+        switch (action) {
+          case "install": cmd = svc.install_cmd; break;
+          case "start":   cmd = `docker start ${svc.container}`; break;
+          case "stop":    cmd = `docker stop ${svc.container}`; break;
+          case "remove":  cmd = `docker stop ${svc.container} 2>/dev/null; docker rm ${svc.container}`; break;
+          default: return;
+        }
       }
       const out = await run(cmd);
       appendLog(`${svc.name} ${action} complete${out ? `: ${out}` : ""}`);

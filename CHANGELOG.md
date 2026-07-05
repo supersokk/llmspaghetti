@@ -17,6 +17,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   on failure** — no more `nohup`. Runs as the normal user (models/venv live in
   their home); sudo only for the unit.
 - **`spag comfyui <install|start|stop|restart|status|logs>`** — manage it from the CLI.
+- **One-click install from the Services tab.** The ComfyUI entry is now **native**
+  (host systemd service, not Docker) — status via `systemctl`, and the **Install**
+  button runs the setup script. The installer works whether invoked as a normal
+  user (CLI) or as root (the Cockpit button), resolving the target user itself.
 - **Image Generator tab** gains a **Start ComfyUI** button when the backend is down,
   and points first-timers at `spag comfyui install`. Bootstrap now ships the setup script.
 

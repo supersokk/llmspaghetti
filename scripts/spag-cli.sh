@@ -100,15 +100,9 @@ cmd_comfyui() {
   case "$sub" in
     install|setup)
       [[ -f "$setup" ]] || error "ComfyUI setup script not found at $setup"
-      # The setup runs as a normal user (its venv/models live in that user's home)
-      # and sudos only for the systemd bits. If invoked via sudo, drop back to the
-      # real user; otherwise run it directly.
-      if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
-        info "Running ComfyUI setup as $SUDO_USER…"
-        sudo -u "$SUDO_USER" bash "$setup"
-      else
-        bash "$setup"
-      fi
+      # The script figures out the target user itself (COMFYUI_USER → SUDO_USER →
+      # first regular account) and handles both root and non-root invocation.
+      COMFYUI_USER="${COMFYUI_USER:-${SUDO_USER:-}}" bash "$setup"
       ;;
     start)   info "Starting ComfyUI...";   systemctl start comfyui   && success "Started" ;;
     stop)    info "Stopping ComfyUI...";    systemctl stop comfyui    && success "Stopped" ;;
