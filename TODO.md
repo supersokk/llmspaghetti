@@ -19,6 +19,19 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
   cloud goes via LiteLLM. Kills the alias-namespace friction.
 - ✅ Add **Cerebras** as a cloud provider — Settings API-key field + firstboot
   litellm_config entries (`cerebras-llama-8b/70b`).
+- ☐ **Speed up model downloads (network is slow)** — HF `.safetensors` (Image tab
+  engine + HF-picker downloads) and custom-node clones use single-connection
+  `wget`, which crawls on multi-GB files. Fix: switch large-file downloads to
+  **`aria2c -x16 -s16`** (multi-connection) or HuggingFace `hf_transfer`; keep the
+  same `%`-progress parsing the Image tab already does. Big win on SDXL/Flux
+  checkpoints. (Noted 2026-07-06.)
+- ☐ **HuggingFace login (gated/private models)** — some repos (Flux.1-dev, some
+  Llama, etc.) are gated: they need an accepted licence + an auth token, so
+  anonymous `wget`/`ollama pull` gets 401/403. Add an **HF token field** in Cockpit
+  (Settings, beside the other API keys → `HF_TOKEN` in `api_keys.env`). Downloads
+  pass `--header "Authorization: Bearer $HF_TOKEN"` **only when the token is set**
+  (harmless for public repos, unlocks gated ones). On a 401/403, surface a clear
+  "this model is gated — add your HF token in Settings" message. (Noted 2026-07-06.)
 
 ---
 
