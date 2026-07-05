@@ -139,6 +139,8 @@ export default function ImageGen() {
   const [cfg, setCfg]           = useState(null);          // active config (raw file)
   const [comfy, setComfy]       = useState({ ok: null, vramGb: 0, gpu: "" });
   const [installed, setInstalled] = useState(new Set());   // ckpt filenames ComfyUI sees
+  const [archs, setArchs]       = useState([]);            // architecture packs (installed/available)
+  const [installingArch, setInstallingArch] = useState(null);
   const [dl, setDl]             = useState(downloadMgr.state);  // from the module-level manager (survives tab switches)
   const [alert, setAlert]       = useState(null);
   const [testPrompt, setTestPrompt] = useState("a red fox in a snowy forest, cinematic");
@@ -151,9 +153,12 @@ export default function ImageGen() {
   const [customFamily, setCustomFamily] = useState({});   // {modelFile: family} for Installed section
 
   const loadAll = useCallback(async () => {
-    const [cat, conf] = await Promise.all([rget("/api/image-engines"), rget("/api/image-config")]);
+    const [cat, conf, arch] = await Promise.all([
+      rget("/api/image-engines"), rget("/api/image-config"), rget("/api/image-architectures"),
+    ]);
     setCatalog(cat && cat.engines ? cat : { tiers: {}, engines: [] });
     if (conf && conf.config) setCfg(conf.config);
+    setArchs((arch && arch.architectures) || []);
 
     const stats = await cget("/system_stats");
     if (stats) {
@@ -252,6 +257,62 @@ export default function ImageGen() {
     saveCfg({ ...cfg, enabled: true, engine: "custom", family, model_file: modelFile,
               steps: d.steps, size: d.size, cfg: d.cfg, guidance: d.guidance });
     setAlert({ type: "ok", msg: `Activated ${modelFile} as ${family} — the image role uses it now.` });
+  };
+
+  const spawnRoot = (cmd) => new Promise((res, rej) => {
+    const p = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" });
+    let out = ""; p.stream(d => { out += d; });
+    p.then(() => res(out), rej);
+  });
+
+  // Install an architecture pack: clone its ComfyUI custom nodes (as the user, into
+  // <comfy_dir>/custom_nodes), drop its workflow template into image-workflows/, and
+  // restart ComfyUI so the nodes load. The router then routes that family.
+  const installArch = async (pack) => {
+    if (installingArch) return;
+    setInstallingArch(pack.id);
+    setAlert({ type: "ok", msg: `Installing ${pack.name}… (custom nodes can take a minute)` });
+    try {
+      const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
+      for (const node of (pack.comfy_nodes || [])) {
+        // Runs as the logged-in user so ~/ComfyUI is writable; idempotent (skips clone if present).
+        await run(
+          `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; cd "$d/custom_nodes" 2>/dev/null && ` +
+          `{ [ -d "${node.name}" ] || git clone --depth 1 '${node.repo}' "${node.name}"; ` +
+          `[ -f "${node.name}/requirements.txt" ] && "$d/venv/bin/pip" install -q -r "${node.name}/requirements.txt"; true; }`
+        );
+      }
+      // Drop the workflow template into the router's families dir (root-owned /opt).
+      const tmpl = await cockpit.file(`/opt/llmspaghetti/config/image-architectures/${pack.id}.json`,
+        { superuser: "try" }).read();
+      if (!tmpl) throw new Error("pack template not found on disk (deploy config/image-architectures/)");
+      await cockpit.file(`/opt/llmspaghetti/config/image-workflows/${pack.id}.json`,
+        { superuser: "try" }).replace(tmpl);
+      // Restart ComfyUI so newly-cloned nodes are picked up.
+      if ((pack.comfy_nodes || []).length) await spawnRoot("systemctl restart comfyui");
+      setAlert({ type: "ok", msg: `${pack.name} installed — it's now a selectable architecture.` });
+    } catch (e) {
+      setAlert({ type: "err", msg: `Install failed: ${e && e.message || e}` });
+    } finally {
+      setInstallingArch(null);
+      setTimeout(loadAll, 6000);   // give ComfyUI a moment to come back
+    }
+  };
+
+  // Uninstall: drop the workflow template (family stops routing). Custom nodes are
+  // left in place (harmless) — remove them from custom_nodes/ manually if desired.
+  const uninstallArch = async (pack) => {
+    if (installingArch) return;
+    setInstallingArch(pack.id);
+    try {
+      await spawnRoot(`rm -f /opt/llmspaghetti/config/image-workflows/${pack.id}.json`);
+      setAlert({ type: "ok", msg: `${pack.name} removed. (Custom nodes left in place.)` });
+    } catch (e) {
+      setAlert({ type: "err", msg: `Remove failed: ${e && e.message || e}` });
+    } finally {
+      setInstallingArch(null);
+      loadAll();
+    }
   };
 
   // Start the ComfyUI systemd service (installed via `spag comfyui install`).
@@ -482,6 +543,58 @@ export default function ImageGen() {
         );
       })}
 
+      {/* Architecture packs — install support for a model family (nodes + template) */}
+      {archs.length > 0 && (
+        <div style={card}>
+          <div style={label}>Architectures</div>
+          <div style={{ fontSize: "0.78rem", color: C.dim, marginBottom: "0.85rem" }}>
+            The model families the router can drive. Install a pack to add a new one —
+            it clones any ComfyUI custom nodes and drops in the workflow. Built-ins are always available.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {archs.map(a => {
+              const busy = installingArch === a.id;
+              return (
+                <div key={a.id} style={{ background: C.bg,
+                                         border: `1px solid ${a.installed ? C.green + "40" : C.border}`,
+                                         borderRadius: 8, padding: "0.65rem 0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "0.9rem", fontWeight: 600, color: C.text }}>{a.name}</span>
+                    {a.builtin && <span style={{ fontSize: "0.68rem", fontWeight: 700, color: C.dim,
+                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20,
+                      padding: "0.1rem 0.45rem" }}>built-in</span>}
+                    {a.experimental && <span style={{ fontSize: "0.68rem", fontWeight: 700, color: C.yellow,
+                      background: `${C.yellow}18`, borderRadius: 20, padding: "0.1rem 0.45rem" }}>experimental</span>}
+                    <span style={{ fontSize: "0.72rem", color: C.dim }}>~{a.vram_gb} GB</span>
+                    <span style={{ flex: 1 }} />
+                    {a.installed
+                      ? (a.builtin
+                          ? <span style={{ fontSize: "0.75rem", fontWeight: 600, color: C.green }}>✓ installed</span>
+                          : <button disabled={busy} onClick={() => uninstallArch(a)}
+                              style={{ padding: "0.28rem 0.75rem", fontSize: "0.76rem", fontWeight: 600,
+                                       border: `1px solid ${C.border}`, borderRadius: 6, background: "transparent",
+                                       color: C.dim, cursor: busy ? "default" : "pointer" }}>
+                              {busy ? "…" : "Remove"}
+                            </button>)
+                      : <button disabled={!!installingArch} onClick={() => installArch(a)}
+                          style={{ padding: "0.28rem 0.8rem", fontSize: "0.76rem", fontWeight: 600, border: "none",
+                                   borderRadius: 6, background: C.accent, color: "white",
+                                   cursor: installingArch ? "not-allowed" : "pointer",
+                                   opacity: installingArch ? 0.5 : 1 }}>
+                          {busy ? "Installing…" : "↓ Install"}
+                        </button>}
+                  </div>
+                  <div style={{ fontSize: "0.78rem", color: C.dim, marginTop: "0.35rem" }}>{a.blurb}</div>
+                  {a.note && (a.installed || a.experimental) && (
+                    <div style={{ fontSize: "0.72rem", color: C.yellow, marginTop: "0.35rem" }}>⚠ {a.note}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Installed models not in the catalog — pick a family + activate */}
       {customModels.length > 0 && (
         <div style={card}>
@@ -504,9 +617,10 @@ export default function ImageGen() {
                   <select value={fam} onChange={e => setCustomFamily(o => ({ ...o, [m]: e.target.value }))}
                     style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text,
                              borderRadius: 6, fontSize: "0.78rem", padding: "0.25rem 0.4rem", cursor: "pointer" }}>
-                    <option value="sd15">SD 1.5</option>
-                    <option value="sdxl">SDXL</option>
-                    <option value="flux">Flux</option>
+                    {(archs.filter(a => a.installed).length
+                        ? archs.filter(a => a.installed)
+                        : [{ id: "sd15", name: "SD 1.5" }, { id: "sdxl", name: "SDXL" }, { id: "flux", name: "Flux" }]
+                     ).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                   <button disabled={isActive} onClick={() => activateCustom(m, fam)}
                     style={{ padding: "0.3rem 0.8rem", fontSize: "0.78rem", fontWeight: 600, border: "none",

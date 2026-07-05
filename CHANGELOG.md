@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-06 — Tap-install architecture packs)
+
+- **Install a new image architecture with one tap.** The Image Generator tab gains
+  an **Architectures** section (catalog: `config/image-architectures.yaml`). Each
+  pack = a ComfyUI workflow template + optional ComfyUI custom nodes. **Install**
+  clones the custom nodes into `<comfy_dir>/custom_nodes` (as the user), drops the
+  workflow template into `config/image-workflows/`, and restarts ComfyUI — the
+  router then routes that family. Built-ins (SD1.5/SDXL/Flux) show as installed;
+  **Remove** tears a pack's template back out.
+- **Z-Image ships as the first installable pack** (experimental) — the architecture
+  behind the Z-Anime model. Honestly labeled: Z-Image isn't native in mainline
+  ComfyUI, so its template (`config/image-architectures/zimage.json`) is drop-in
+  editable if sampling needs tuning.
+- `GET /api/image-architectures` serves the catalog with per-pack `installed` state.
+  This is the tap-install layer sitting on the data-driven workflow engine below.
+
 ### Changed (2026-07-05 — Data-driven image workflows in the router)
 
 - **Image workflows are now template files, not hardcoded Python.** The router's

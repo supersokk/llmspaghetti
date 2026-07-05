@@ -40,6 +40,7 @@ API_KEYS_PATH    = INSTALL_DIR / "config" / "api_keys.env"
 IMAGE_CFG_PATH     = INSTALL_DIR / "config" / "image.yaml"
 IMAGE_ENGINES_PATH = INSTALL_DIR / "config" / "image-engines.yaml"
 IMAGE_WORKFLOWS_DIR = INSTALL_DIR / "config" / "image-workflows"  # <family>.json ComfyUI templates
+IMAGE_ARCHITECTURES_PATH = INSTALL_DIR / "config" / "image-architectures.yaml"  # installable pack catalog
 IMAGES_DIR       = INSTALL_DIR / "images"
 LITELLM_URL      = os.environ.get("LITELLM_URL", "http://litellm:4000")
 OLLAMA_URL       = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
@@ -1399,6 +1400,22 @@ async def api_image_workflows():
     template installed under config/image-workflows/. The UI uses this for its
     family picker; an 'install architecture' pack extends it by dropping a template."""
     return JSONResponse({"families": _available_families()})
+
+
+@app.get("/api/image-architectures")
+async def api_image_architectures():
+    """The architecture-pack catalog, each flagged installed=True if its workflow
+    template is present. The Image Generator tab renders this as tap-install cards."""
+    try:
+        with open(IMAGE_ARCHITECTURES_PATH) as f:
+            cat = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        cat = {}
+    installed = set(_available_families())
+    archs = cat.get("architectures", []) or []
+    for a in archs:
+        a["installed"] = a.get("id") in installed
+    return JSONResponse({"architectures": archs})
 
 
 @app.get("/api/image-config")

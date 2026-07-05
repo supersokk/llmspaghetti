@@ -1,0 +1,45 @@
+# LLMSpaghetti — Image architecture packs
+# A "pack" adds a text-to-image ARCHITECTURE to the router. It's two things:
+#   1. a ComfyUI workflow TEMPLATE (config/image-workflows/<id>.json) — the router
+#      fills its {{PROMPT}}/{{MODEL}}/{{STEPS}}/… tokens per request
+#   2. (optional) ComfyUI CUSTOM NODES the template needs, cloned into
+#      <comfy_dir>/custom_nodes and pip-installed
+#
+# The Image Generator tab lists these; tap Install → clones any nodes, drops the
+# template into image-workflows/, restarts ComfyUI. The router then routes that
+# family (it appears in GET /api/image-workflows). Built-ins ship pre-installed.
+#
+# Template source for installable packs lives at config/image-architectures/<id>.json.
+
+architectures:
+  - id: sd15
+    name: "Stable Diffusion 1.5"
+    builtin: true
+    vram_gb: 4
+    blurb: "The classic. Fast, light, thousands of fine-tunes. 512px."
+
+  - id: sdxl
+    name: "Stable Diffusion XL"
+    builtin: true
+    vram_gb: 10
+    blurb: "Sharper 1024px, strong prompt adherence. Proven on 8GB (~21s, spills to RAM)."
+
+  - id: flux
+    name: "Flux.1"
+    builtin: true
+    vram_gb: 12
+    blurb: "Black Forest Labs. Top-tier quality; needs a bigger card."
+
+  - id: zimage
+    name: "Z-Image (Tongyi)"
+    builtin: false
+    experimental: true
+    vram_gb: 12
+    blurb: "Alibaba's Z-Image — the architecture behind Z-Anime and its fine-tunes. Uses a Qwen text encoder; use an AIO checkpoint."
+    # Utility nodes the official Z-Image workflow uses. Harmless if unused by our
+    # graph; installed so the ecosystem is complete. Add/remove as needed.
+    comfy_nodes:
+      - name: "rgthree-comfy"
+        repo: "https://github.com/rgthree/rgthree-comfy"
+    # Honest note surfaced in the UI:
+    note: "Experimental — Z-Image isn't native in mainline ComfyUI yet. Loads via a standard checkpoint loader (AIO variant); if sampling is off, the template at config/image-workflows/zimage.json is drop-in editable."
