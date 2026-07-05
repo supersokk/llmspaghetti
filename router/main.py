@@ -1284,11 +1284,37 @@ async def api_mcp_status():
 
 @app.get("/api/provider-health")
 async def api_provider_health(model: str = ""):
-    """Ping a single model to check availability (via its real backend)."""
+    """Check a model's availability.
+
+    For LOCAL Ollama models we must NOT send an inference request — that would load
+    the model into VRAM, so the health polling (Dashboard/Routing tabs, every few
+    seconds) would silently re-load everything the user just ejected. Instead we
+    check Ollama's server + installed list, which never loads a model. Cloud models
+    have no VRAM cost, so they keep the light ping."""
     if not model:
         return JSONResponse({"status": "error", "detail": "model param required"}, status_code=400)
     client, fwd = _route_backend(model)
     t0 = time.monotonic()
+
+    if client is _ollama_client:
+        # Local: is Ollama up and is this model installed? Never loads it into VRAM.
+        try:
+            resp = await _ext_client.get(f"{OLLAMA_URL}/api/tags", timeout=8.0)
+            resp.raise_for_status()
+            names = {m.get("name", "") for m in resp.json().get("models", [])}
+            latency = round((time.monotonic() - t0) * 1000)
+            base = fwd.split(":")[0]
+            installed = (fwd in names or f"{fwd}:latest" in names
+                         or any(n.split(":")[0] == base for n in names))
+            return JSONResponse({
+                "status":     "ok" if installed else "error",
+                "latency_ms": latency,
+                "detail":     None if installed else "not installed in Ollama",
+            })
+        except Exception as e:
+            return JSONResponse({"status": "unreachable", "detail": str(e)})
+
+    # Cloud / LiteLLM: a light ping is fine (no VRAM to churn).
     try:
         resp = await client.post(
             "/v1/chat/completions",
