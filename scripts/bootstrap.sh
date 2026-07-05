@@ -38,7 +38,7 @@ apt-get install -y -qq \
   software-properties-common apt-transport-https \
   python3 python3-pip python3-venv \
   net-tools iproute2 htop \
-  nano less bc
+  nano less bc aria2
 success "System updated"
 
 # ── Create service user and directories ──────────────────────────────────────

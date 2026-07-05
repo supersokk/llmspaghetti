@@ -8,6 +8,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-06 — Faster downloads + HuggingFace login)
+
+- **Image-tab downloads now use `aria2c -x16 -s16`** (16 parallel connections, huge
+  speedup on multi-GB checkpoints) with a `wget` fallback if aria2 isn't installed.
+  Same live `%` progress bar. `aria2` added to bootstrap.
+- **HuggingFace token support for gated/private models.** New `HF_TOKEN` field in
+  Cockpit **Settings**; downloads attach `Authorization: Bearer <token>` **only when
+  it's set** (no effect on public repos, unlocks gated ones like Flux.1-dev). A
+  401/403 now surfaces a clear "this model looks gated — add your HF token in
+  Settings + accept the licence" message instead of a bare failure.
+
 ### Added (2026-07-06 — Tap-install architecture packs)
 
 - **Install a new image architecture with one tap.** The Image Generator tab gains

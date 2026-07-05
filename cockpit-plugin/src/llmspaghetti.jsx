@@ -529,6 +529,7 @@ const API_KEY_FIELDS = [
   { key: "GEMINI_API_KEY",     label: "Google Gemini Key",  hint: "Enables Gemini Pro / Flash" },
   { key: "BRAVE_API_KEY",      label: "Brave Search Key",   hint: "Used by the Brave Search MCP tool" },
   { key: "GITHUB_PERSONAL_ACCESS_TOKEN", label: "GitHub Token", hint: "Used by the GitHub MCP tool" },
+  { key: "HF_TOKEN",           label: "HuggingFace Token",  hint: "Optional — unlocks gated/private models (Flux.1-dev, etc.) for downloads. Get one at huggingface.co/settings/tokens" },
 ];
 
 function parseEnvFile(raw) {

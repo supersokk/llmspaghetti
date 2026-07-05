@@ -90,15 +90,24 @@ const downloadMgr = {
   _set(s) { this.state = s; this.listeners.forEach(fn => { try { fn(s); } catch {} }); },
   busy() { return !!(this.state && this.state.phase === "run"); },
   clear() { if (this.state && this.state.phase !== "run") this._set(null); },
-  start(comfyDir, id, destRel, url, sizeLabel, doneMsg) {
+  start(comfyDir, id, destRel, url, sizeLabel, doneMsg, token) {
     if (this.busy()) return false;
     this._set({ id, pct: null, label: "starting…", phase: "run" });
+    // HuggingFace auth header (only when a token is set) — unlocks gated/private repos.
+    const auth = token ? `--header='Authorization: Bearer ${token}'` : "";
+    // aria2c (16 parallel connections) when available — far faster on multi-GB files
+    // — else fall back to wget. Both take --header and both emit an "NN%" the stream
+    // parser picks up.
     const cmd =
       `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; ` +
-      `out="$d/models/${destRel}"; mkdir -p "\$(dirname "$out")"; ` +
-      `wget --progress=dot:mega -O "$out" '${url}'`;
+      `out="$d/models/${destRel}"; dir="\$(dirname "$out")"; base="\$(basename "$out")"; mkdir -p "$dir"; ` +
+      `if command -v aria2c >/dev/null 2>&1; then ` +
+      `aria2c -x16 -s16 -k1M --console-log-level=warn --summary-interval=1 --allow-overwrite=true ${auth} -d "$dir" -o "$base" '${url}'; ` +
+      `else wget --progress=dot:mega ${auth} -O "$out" '${url}'; fi`;
+    let out = "";
     const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "out" });
     proc.stream(d => {
+      out = (out + d).slice(-2000);
       const tail = d.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
       const m = tail.match(/(\d+)%/);
       this._set({ id, pct: m ? parseInt(m[1], 10) : (this.state ? this.state.pct : null),
@@ -107,8 +116,14 @@ const downloadMgr = {
     proc.then(
       () => { this._set({ id, pct: 100, phase: "done", msg: doneMsg || "Downloaded." });
               setTimeout(() => this.clear(), 12000); },
-      (e) => { this._set({ id, phase: "error", msg: `Download failed: ${e && e.message || e}` });
-               setTimeout(() => this.clear(), 12000); },
+      (e) => {
+        const gated = /\b(401|403)\b|unauthor|forbidden|gated|restricted/i.test(out);
+        const msg = gated
+          ? "Download failed — this model looks gated. Add your HuggingFace token in Settings, accept the model's licence on huggingface.co, then retry."
+          : `Download failed: ${e && e.message || e}`;
+        this._set({ id, phase: "error", msg });
+        setTimeout(() => this.clear(), 15000);
+      },
     );
     return true;
   },
@@ -141,6 +156,7 @@ export default function ImageGen() {
   const [installed, setInstalled] = useState(new Set());   // ckpt filenames ComfyUI sees
   const [archs, setArchs]       = useState([]);            // architecture packs (installed/available)
   const [installingArch, setInstallingArch] = useState(null);
+  const [hfToken, setHfToken]   = useState("");            // optional HF token for gated downloads
   const [dl, setDl]             = useState(downloadMgr.state);  // from the module-level manager (survives tab switches)
   const [alert, setAlert]       = useState(null);
   const [testPrompt, setTestPrompt] = useState("a red fox in a snowy forest, cinematic");
@@ -159,6 +175,14 @@ export default function ImageGen() {
     setCatalog(cat && cat.engines ? cat : { tiers: {}, engines: [] });
     if (conf && conf.config) setCfg(conf.config);
     setArchs((arch && arch.architectures) || []);
+
+    // Optional HuggingFace token (from Settings) — attached to downloads to unlock
+    // gated/private repos. Read best-effort; absent for public models is fine.
+    cockpit.file("/opt/llmspaghetti/config/api_keys.env", { superuser: "try" }).read()
+      .then(raw => {
+        const m = (raw || "").match(/^\s*HF_TOKEN\s*=\s*(.+?)\s*$/m);
+        setHfToken(m ? m[1].replace(/^["']|["']$/g, "") : "");
+      }).catch(() => {});
 
     const stats = await cget("/system_stats");
     if (stats) {
@@ -220,7 +244,7 @@ export default function ImageGen() {
     }
     const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
     setAlert(null);
-    downloadMgr.start(comfyDir, id, destRel, url, sizeLabel, doneMsg);
+    downloadMgr.start(comfyDir, id, destRel, url, sizeLabel, doneMsg, hfToken);
   };
 
   const download = (eng) => {
