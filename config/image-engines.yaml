@@ -1,0 +1,89 @@
+# LLMSpaghetti — Image engine catalog
+# Curated text-to-image engines, grouped by hardware tier. The Image Generator
+# tab presents these; the router builds the right ComfyUI workflow per `family`.
+# You are the rule-maker: pick any engine your GPU can handle. The tab shows what
+# each one NEEDS and recommends by hardware class — it informs, it doesn't block.
+#
+# family drives the ComfyUI workflow the router builds:
+#   sd15  — Stable Diffusion 1.5   (512px,  basic graph, cfg ~7, negative prompt)
+#   sdxl  — Stable Diffusion XL     (1024px, basic graph, cfg ~7, negative prompt)
+#   flux  — Black Forest Labs Flux  (1024px, flux graph: SD3 latent + FluxGuidance, cfg 1)
+
+tiers:
+  low:
+    label: "Low"
+    blurb: "Fast and light. Runs on modest GPUs; great for drafts and everyday images."
+    recommended_gpu: "6–8 GB VRAM"
+  better:
+    label: "Better"
+    blurb: "Sharper, 1024px, stronger prompt adherence. Wants a mid-range card."
+    recommended_gpu: "12–16 GB VRAM"
+  best:
+    label: "Best"
+    blurb: "Top-tier fidelity. Workstation / big-VRAM territory."
+    recommended_gpu: "24 GB+ VRAM"
+
+# Each engine: id, display name, tier, family, VRAM estimate, default render
+# params, and the file(s) to download (dest is relative to ComfyUI/models/).
+engines:
+  - id: dreamshaper8
+    name: "DreamShaper 8"
+    tier: low
+    family: sd15
+    vram_gb: 4
+    res: 512
+    steps: 20
+    cfg: 7.0
+    blurb: "Versatile SD 1.5 all-rounder — photoreal through to art. The safe default."
+    model_file: dreamshaper_8.safetensors
+    files:
+      - dest: checkpoints/dreamshaper_8.safetensors
+        url: https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors
+        size_gb: 2.0
+
+  - id: sdxl-base
+    name: "SDXL Base 1.0"
+    tier: better
+    family: sdxl
+    vram_gb: 10
+    res: 1024
+    steps: 30
+    cfg: 7.0
+    blurb: "Stability's SDXL — crisp 1024px output and strong prompt following."
+    model_file: sd_xl_base_1.0.safetensors
+    files:
+      - dest: checkpoints/sd_xl_base_1.0.safetensors
+        url: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors
+        size_gb: 6.9
+
+  - id: flux-schnell
+    name: "Flux.1 schnell (fp8)"
+    tier: best
+    family: flux
+    vram_gb: 12
+    res: 1024
+    steps: 4
+    cfg: 1.0
+    guidance: 3.5
+    blurb: "Black Forest Labs' fast Flux — stunning quality in just 4 steps."
+    model_file: flux1-schnell-fp8.safetensors
+    files:
+      - dest: checkpoints/flux1-schnell-fp8.safetensors
+        url: https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main/flux1-schnell-fp8.safetensors
+        size_gb: 17.0
+
+  - id: flux-dev
+    name: "Flux.1 dev (fp8)"
+    tier: best
+    family: flux
+    vram_gb: 16
+    res: 1024
+    steps: 20
+    cfg: 1.0
+    guidance: 3.5
+    blurb: "Higher-fidelity Flux — slower and heavier, but the sharpest of the set."
+    model_file: flux1-dev-fp8.safetensors
+    files:
+      - dest: checkpoints/flux1-dev-fp8.safetensors
+        url: https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
+        size_gb: 17.0

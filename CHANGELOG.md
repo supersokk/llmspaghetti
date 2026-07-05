@@ -8,6 +8,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-05 — Image Generator tab + multi-engine image routing)
+
+- **New Cockpit "Image Generator" tab.** A curated engine catalog grouped by
+  hardware tier — **Low** (SD 1.5), **Better** (SDXL), **Best** (Flux.1) — each
+  card showing VRAM needs and a live **GPU-fit badge** (✅ fits / ⚠ tight / 🛑
+  over) computed from ComfyUI's reported VRAM. You choose; the tab informs, never
+  blocks. Activate an installed engine, **download** a missing one (with a
+  progress bar), tune advanced params (steps/size/cfg/negative or Flux guidance),
+  and **Test** a prompt with an inline preview (read back via `cockpit.file`, so
+  no mixed-content issues).
+- **The router now generates per engine family.** `_comfy_workflow` builds the
+  right ComfyUI graph for `sd15`/`sdxl` (basic graph) vs `flux` (SD3 latent +
+  FluxGuidance, cfg 1, simple scheduler).
+- **Hot-reloaded image settings.** `config/image.yaml` (active engine + params) is
+  written by the tab and re-read by the router per request — switch engines with
+  no restart. `config/image-engines.yaml` is the curated catalog (verified
+  download URLs). Read-only router endpoints `GET /api/image-config` and
+  `GET /api/image-engines` back the tab.
+
 ### Added (2026-07-05 — HuggingFace search + non-blocking pulls in Models tab)
 
 - **Search HuggingFace for GGUF models right in the Models tab.** Ollama can pull

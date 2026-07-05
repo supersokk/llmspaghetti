@@ -37,6 +37,8 @@ QUOTA_STATE_PATH = INSTALL_DIR / "data"   / "quota_state.json"
 MCP_CONFIG_PATH  = INSTALL_DIR / "config" / "mcp.json"
 ROLE_TOOLS_PATH  = INSTALL_DIR / "config" / "role_tools.yaml"
 API_KEYS_PATH    = INSTALL_DIR / "config" / "api_keys.env"
+IMAGE_CFG_PATH     = INSTALL_DIR / "config" / "image.yaml"
+IMAGE_ENGINES_PATH = INSTALL_DIR / "config" / "image-engines.yaml"
 IMAGES_DIR       = INSTALL_DIR / "images"
 LITELLM_URL      = os.environ.get("LITELLM_URL", "http://litellm:4000")
 OLLAMA_URL       = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
@@ -770,24 +772,83 @@ def _extract(messages: list) -> tuple[str, Context]:
 
 # ── Image generation ──────────────────────────────────────────────────────────
 
-def _comfy_display_model() -> str:
+# Active image settings live in config/image.yaml, written by the Image Generator
+# tab and hot-reloaded here (mtime-cached) so changes apply with no restart. Env
+# COMFYUI_* values are the fallback defaults when a key is absent.
+_image_cfg:       dict  = {}
+_image_cfg_mtime: float = 0.0
+
+
+def _load_image_cfg() -> dict:
+    global _image_cfg, _image_cfg_mtime
+    try:
+        mtime = IMAGE_CFG_PATH.stat().st_mtime
+        if mtime != _image_cfg_mtime:
+            with open(IMAGE_CFG_PATH) as f:
+                _image_cfg = yaml.safe_load(f) or {}
+            _image_cfg_mtime = mtime
+            log.info(f"loaded image config (engine={_image_cfg.get('engine')}, "
+                     f"family={_image_cfg.get('family')})")
+    except FileNotFoundError:
+        pass
+    return _image_cfg
+
+
+def _image_settings() -> dict:
+    """Effective image settings: config/image.yaml over env-var defaults."""
+    c = _load_image_cfg()
+    return {
+        "enabled":  bool(c.get("enabled", COMFYUI_ENABLED)),
+        "family":   str(c.get("family", "sd15")),
+        "model":    str(c.get("model_file", COMFYUI_MODEL)),
+        "steps":    int(c.get("steps", COMFYUI_STEPS)),
+        "size":     int(c.get("size", COMFYUI_SIZE)),
+        "cfg":      float(c.get("cfg", COMFYUI_CFG)),
+        "guidance": float(c.get("guidance", 3.5)),
+        "negative": str(c.get("negative", COMFYUI_NEGATIVE)),
+        "timeout":  float(c.get("timeout", COMFYUI_TIMEOUT)),
+    }
+
+
+def _comfy_display_model(s: dict | None = None) -> str:
     """Clean label for provenance/logs: 'dreamshaper_8.safetensors' → 'dreamshaper_8'."""
-    return COMFYUI_MODEL.rsplit(".", 1)[0]
+    model = (s or _image_settings())["model"]
+    return model.rsplit(".", 1)[0]
 
 
-def _comfy_workflow(prompt: str) -> dict:
-    """Minimal SD1.5 txt2img graph in ComfyUI API format (the headless equivalent
-    of the default 'Image Generation' template)."""
+def _comfy_workflow(prompt: str, s: dict) -> dict:
+    """Build the txt2img graph in ComfyUI API format, shaped for the engine family.
+
+    sd15 / sdxl share the basic graph (they differ only in resolution and both load
+    via CheckpointLoaderSimple). flux needs a 16-channel SD3 latent, a FluxGuidance
+    node, and cfg=1 with the 'simple' scheduler."""
+    model, steps, size = s["model"], s["steps"], s["size"]
+    seed = secrets.randbelow(2**32)
+
+    if s["family"] == "flux":
+        return {
+            "4":  {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model}},
+            "6":  {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
+            "26": {"class_type": "FluxGuidance", "inputs": {"guidance": s["guidance"], "conditioning": ["6", 0]}},
+            "7":  {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
+            "5":  {"class_type": "EmptySD3LatentImage", "inputs": {"width": size, "height": size, "batch_size": 1}},
+            "3":  {"class_type": "KSampler", "inputs": {
+                "seed": seed, "steps": steps, "cfg": 1.0,
+                "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
+                "model": ["4", 0], "positive": ["26", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+            "8":  {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+            "9":  {"class_type": "SaveImage", "inputs": {"filename_prefix": "llmspaghetti", "images": ["8", 0]}},
+        }
+
     return {
         "3": {"class_type": "KSampler", "inputs": {
-            "seed": secrets.randbelow(2**32), "steps": COMFYUI_STEPS, "cfg": COMFYUI_CFG,
+            "seed": seed, "steps": steps, "cfg": s["cfg"],
             "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
             "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
-        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": COMFYUI_MODEL}},
-        "5": {"class_type": "EmptyLatentImage", "inputs": {
-            "width": COMFYUI_SIZE, "height": COMFYUI_SIZE, "batch_size": 1}},
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": size, "height": size, "batch_size": 1}},
         "6": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
-        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": COMFYUI_NEGATIVE, "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": s["negative"], "clip": ["4", 1]}},
         "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
         "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "llmspaghetti", "images": ["8", 0]}},
     }
@@ -797,11 +858,12 @@ async def _generate_image_comfy(prompt: str) -> str:
     """Queue a txt2img job to ComfyUI, poll until the PNG is ready, copy it into
     IMAGES_DIR, and return its public URL. Raises on error/timeout so the caller
     can fall back to DALL-E or plain text."""
+    s = _image_settings()
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     q = await _ext_client.post(
         f"{COMFYUI_URL}/prompt",
-        json={"prompt": _comfy_workflow(prompt), "client_id": secrets.token_hex(8)},
+        json={"prompt": _comfy_workflow(prompt, s), "client_id": secrets.token_hex(8)},
         timeout=30.0,
     )
     q.raise_for_status()
@@ -812,8 +874,8 @@ async def _generate_image_comfy(prompt: str) -> str:
         raise RuntimeError(f"ComfyUI rejected the workflow: {qj.get('node_errors') or qj}")
 
     # Poll /history until the job produces images (or errors out). Generation on a
-    # shared 8GB card can spill to RAM and run tens of seconds — hence the patience.
-    deadline = time.monotonic() + COMFYUI_TIMEOUT
+    # shared card can spill to RAM and run tens of seconds — hence the patience.
+    deadline = time.monotonic() + s["timeout"]
     images = None
     while time.monotonic() < deadline:
         h = await _ext_client.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=15.0)
@@ -1065,8 +1127,10 @@ async def lifespan(app: FastAPI):
     _load_quota_state()
     await _check_vram_budget()
     log.info(f"router ready  →  {LITELLM_URL}")
-    if COMFYUI_ENABLED:
-        log.info(f"image generation: ComfyUI  ({COMFYUI_URL}, {_comfy_display_model()})"
+    _img = _image_settings()
+    if _img["enabled"]:
+        log.info(f"image generation: ComfyUI  ({COMFYUI_URL}, "
+                 f"{_img['family']}/{_comfy_display_model(_img)})"
                  f"{' + DALL-E fallback' if OPENAI_API_KEY else ''}")
     elif OPENAI_API_KEY:
         log.info(f"image generation: DALL-E  (saves to {IMAGES_DIR})")
@@ -1239,6 +1303,24 @@ async def api_provider_health(model: str = ""):
         return JSONResponse({"status": "unreachable", "detail": str(e)})
 
 
+# ── Image generation config (read-only; the tab writes image.yaml via cockpit) ─
+
+@app.get("/api/image-engines")
+async def api_image_engines():
+    """The curated engine catalog (tiers + engines) for the Image Generator tab."""
+    try:
+        with open(IMAGE_ENGINES_PATH) as f:
+            return JSONResponse(yaml.safe_load(f) or {"tiers": {}, "engines": []})
+    except FileNotFoundError:
+        return JSONResponse({"tiers": {}, "engines": []})
+
+
+@app.get("/api/image-config")
+async def api_image_config():
+    """Active image settings — the raw file plus the effective (defaults-applied) view."""
+    return JSONResponse({"config": _load_image_cfg(), "effective": _image_settings()})
+
+
 # ── Image file serving ────────────────────────────────────────────────────────
 
 @app.get("/images/{filename}")
@@ -1360,7 +1442,7 @@ async def proxy(request: Request, path: str):
                 if role_name == "image":
                     img_url, img_model = None, None
                     # Prefer local, self-hosted ComfyUI — no cloud key, no per-image cost.
-                    if COMFYUI_ENABLED:
+                    if _image_settings()["enabled"]:
                         try:
                             img_url   = await _generate_image_comfy(last_msg)
                             img_model = _comfy_display_model()

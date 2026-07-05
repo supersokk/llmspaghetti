@@ -1,0 +1,26 @@
+# LLMSpaghetti — Active image-generation settings
+# Managed by the Image Generator tab. Hot-reloaded by the router (no restart).
+# The `image` role routes here. `family` selects the ComfyUI workflow shape.
+
+enabled: true
+
+# Active engine (must match an id in image-engines.yaml for the tab to highlight
+# it, but the router only needs family + model_file + the render params below).
+engine: dreamshaper8
+family: sd15                        # sd15 | sdxl | flux
+model_file: dreamshaper_8.safetensors
+
+# Render parameters (a preset in the tab sets these; advanced users can tweak).
+steps: 20
+size: 512
+cfg: 7.0
+guidance: 3.5                       # flux only (ignored by sd15/sdxl)
+negative: "text, watermark, blurry, low quality, deformed, extra limbs"
+
+# Seconds to wait for a generation before giving up (big models on shared VRAM
+# spill to RAM and run slower).
+timeout: 300
+
+# Where ComfyUI is installed — the Image Generator tab downloads engine files
+# into <comfy_dir>/models/checkpoints/. The router doesn't use this.
+comfy_dir: "~/ComfyUI"

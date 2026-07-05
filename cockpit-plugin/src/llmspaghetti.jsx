@@ -16,6 +16,7 @@ import { createRoot } from "react-dom/client";
 import Dashboard from "./tabs/Dashboard.jsx";
 import Models    from "./tabs/Models.jsx";
 import Routing   from "./tabs/Routing.jsx";
+import ImageGen  from "./tabs/ImageGen.jsx";
 import Services  from "./tabs/Services.jsx";
 
 // ── Cockpit API (available in Cockpit context) ────────────────────────────────
@@ -748,6 +749,7 @@ const TABS = [
   { id: "dashboard", label: "Dashboard" },
   { id: "models",    label: "Models" },
   { id: "routing",   label: "Routing" },
+  { id: "imagegen",  label: "🖼 Image" },
   { id: "gateway",   label: "API Gateway" },
   { id: "services",  label: "Services" },
   { id: "terminal",  label: "＞_ Terminal" },
@@ -802,6 +804,7 @@ function App() {
         {tab === "dashboard" && <Dashboard onTabChange={setTab} />}
         {tab === "models"    && <Models />}
         {tab === "routing"   && <Routing />}
+        {tab === "imagegen"  && <ImageGen />}
         {tab === "gateway"   && <Gateway />}
         {tab === "services"  && <Services />}
         {tab === "terminal"  && <Terminal />}
