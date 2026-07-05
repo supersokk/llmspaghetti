@@ -8,6 +8,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-05 — "Free VRAM" button + honest loaded-models)
+
+- **"Free VRAM" button on the Dashboard GPU card.** One click reclaims VRAM held by
+  running services — unloads every loaded Ollama model **and** drops ComfyUI's
+  cached model — **without stopping either service** (both reload on next use). For
+  shared/small GPUs where an idle ComfyUI cache or leftover LLMs starve the card.
+- **Loaded Models panel now reads reality.** It queried `/api/tags` (every installed
+  model on disk) and stamped "in VRAM" on all of them; now it reads `/api/ps` (what's
+  actually resident) with `size_vram` and badges each **in VRAM / in RAM / VRAM+RAM**
+  by where it truly sits — matching the GPU VRAM stat.
+
+### Fixed (2026-07-05)
+
+- **Health polling no longer loads models into VRAM.** `provider-health` sent a real
+  inference ping (which made Ollama load the model); the Dashboard/Routing tabs poll
+  it every few seconds, so ejected models kept creeping back. Local models are now
+  checked via `/api/tags` (no load); cloud models keep the light ping.
+- **Image-tab downloads survive tab switches** via a module-level manager + a
+  persistent progress banner (Cockpit unmounts the tab component on switch).
+
 ### Added (2026-07-05 — Add any HuggingFace image model + activate custom checkpoints)
 
 - **"Add from HuggingFace" in the Image Generator tab.** Paste a model repo URL →

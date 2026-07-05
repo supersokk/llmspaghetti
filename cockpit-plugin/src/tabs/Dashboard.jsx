@@ -281,7 +281,30 @@ function ProviderHealth() {
 }
 
 // ── GPU Card (one per physical GPU) ──────────────────────────────────────────
-function GPUCard({ gpu, index, vendor }) {
+function GPUCard({ gpu, index, vendor, onRefresh }) {
+  const [freeing, setFreeing] = useState(false);
+
+  // Reclaim VRAM held by running services — unload every loaded Ollama model AND
+  // drop ComfyUI's cached model — WITHOUT stopping either service. Both reload on
+  // next use; this just hands the VRAM back now.
+  const freeVram = async () => {
+    setFreeing(true);
+    try {
+      await run(
+        // Ollama: stop only what's actually loaded (/api/ps).
+        `curl -sf http://localhost:11434/api/ps | python3 -c ` +
+        `"import json,sys,subprocess; [subprocess.run(['ollama','stop',m['name']]) ` +
+        `for m in json.load(sys.stdin).get('models',[])]" 2>/dev/null; ` +
+        // ComfyUI: free cached models + memory.
+        `curl -sf -X POST http://localhost:8188/free -H 'Content-Type: application/json' ` +
+        `-d '{"unload_models":true,"free_memory":true}' >/dev/null 2>&1; true`
+      );
+    } finally {
+      setFreeing(false);
+      if (onRefresh) onRefresh();
+    }
+  };
+
   const vramPct = gpu.vram_total_mb > 0
     ? (gpu.vram_used_mb / gpu.vram_total_mb) * 100 : 0;
   const utilPct = gpu.util_pct || 0;
@@ -317,6 +340,15 @@ function GPUCard({ gpu, index, vendor }) {
               Fan {gpu.fan_pct}%
             </div>
           )}
+          <button onClick={freeVram} disabled={freeing}
+            title="Unload all Ollama models and drop ComfyUI's cached model from VRAM. Services keep running; they reload on next use."
+            style={{ marginTop: "0.5rem", fontSize: "0.72rem", fontWeight: 600,
+                     color: freeing ? C.dim : C.accent2, background: "transparent",
+                     border: `1px solid ${C.border}`, borderRadius: "6px",
+                     padding: "0.22rem 0.55rem", cursor: freeing ? "default" : "pointer",
+                     whiteSpace: "nowrap" }}>
+            {freeing ? "Freeing…" : "⤓ Free VRAM"}
+          </button>
         </div>
       </div>
 
@@ -642,7 +674,7 @@ export default function Dashboard({ onTabChange }) {
                       gridTemplateColumns: allGpus.length === 1 ? "1fr" : "1fr 1fr",
                       gap: "0.75rem", marginBottom: "1rem" }}>
           {allGpus.map((gpu, i) => (
-            <GPUCard key={i} gpu={gpu} index={gpu.index ?? i} vendor={gpu.vendor} />
+            <GPUCard key={i} gpu={gpu} index={gpu.index ?? i} vendor={gpu.vendor} onRefresh={refresh} />
           ))}
         </div>
       )}
