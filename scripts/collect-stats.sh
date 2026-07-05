@@ -161,7 +161,7 @@ collect_nvidia() {
 
   local gpus_json="[]"
   local count
-  count=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+  count=$(timeout 5 nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
   [[ $count -eq 0 ]] && { echo "\"nvidia\": []"; return; }
 
   local json="["
@@ -185,7 +185,7 @@ collect_nvidia() {
       \"clock_mem_mhz\": $(echo "$clock_mem" | xargs | tr -d ' '),
       \"clock_gpu_mhz\": $(echo "$clock_gpu" | xargs | tr -d ' ')
     }"
-  done < <(nvidia-smi \
+  done < <(timeout 5 nvidia-smi \
     --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw,power.limit,fan.speed,clocks.mem,clocks.gr \
     --format=csv,noheader,nounits 2>/dev/null)
 
@@ -220,7 +220,8 @@ collect_services() {
     echo "${s:-inactive}"
   }
   container_status() {
-    local s; s=$(docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null | tr -d '[:space:]')
+    # timeout guards against a slow/wedged docker daemon hanging the whole collector.
+    local s; s=$(timeout 4 docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null | tr -d '[:space:]')
     echo "${s:-stopped}"
   }
 
@@ -230,7 +231,9 @@ collect_services() {
   local models_json="[]"
   if command -v ollama &>/dev/null; then
     local raw
-    raw=$(curl -sf http://localhost:11434/api/ps 2>/dev/null || echo '{"models":[]}')
+    # --max-time so a busy/thrashing Ollama can't hang the collector (→ Dashboard
+    # stuck on "Collecting system stats…"). Empty result degrades gracefully.
+    raw=$(curl -sf --max-time 3 http://localhost:11434/api/ps 2>/dev/null || echo '{"models":[]}')
     models_json=$(echo "$raw" | python3 -c "
 import json,sys
 data=json.load(sys.stdin)
