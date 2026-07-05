@@ -39,6 +39,7 @@ ROLE_TOOLS_PATH  = INSTALL_DIR / "config" / "role_tools.yaml"
 API_KEYS_PATH    = INSTALL_DIR / "config" / "api_keys.env"
 IMAGE_CFG_PATH     = INSTALL_DIR / "config" / "image.yaml"
 IMAGE_ENGINES_PATH = INSTALL_DIR / "config" / "image-engines.yaml"
+IMAGE_WORKFLOWS_DIR = INSTALL_DIR / "config" / "image-workflows"  # <family>.json ComfyUI templates
 IMAGES_DIR       = INSTALL_DIR / "images"
 LITELLM_URL      = os.environ.get("LITELLM_URL", "http://litellm:4000")
 OLLAMA_URL       = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
@@ -816,42 +817,93 @@ def _comfy_display_model(s: dict | None = None) -> str:
     return model.rsplit(".", 1)[0]
 
 
+# ── Data-driven image workflows ───────────────────────────────────────────────
+# Each engine family (sd15 / sdxl / flux / …) is a ComfyUI API-format workflow
+# TEMPLATE at config/image-workflows/<family>.json — the graph with placeholder
+# tokens the router fills in per request. Adding an architecture is then just a
+# new template file (+ optionally a ComfyUI custom node), NOT a router code change.
+# This is the seam an "install architecture" / tap-install pack plugs into.
+#
+# Placeholders (a template value that is EXACTLY one of these strings is replaced,
+# with the right type — so no JSON-escaping of the prompt and numbers stay numbers):
+#   "{{PROMPT}}" "{{NEGATIVE}}" "{{MODEL}}"  → str
+#   "{{STEPS}}" "{{WIDTH}}" "{{HEIGHT}}" "{{SEED}}" → int
+#   "{{CFG}}" "{{GUIDANCE}}"                 → float
+# Node wiring (e.g. ["4", 0]) is left untouched.
+
+_workflow_cache: dict = {}   # family -> (mtime, template_dict)
+
+
+def _load_workflow_template(family: str) -> dict | None:
+    """Load + mtime-cache the ComfyUI workflow template for a family. Returns None
+    if there's no template (missing file / invalid JSON) so the caller can surface
+    a clear 'no workflow for this architecture' error."""
+    path = IMAGE_WORKFLOWS_DIR / f"{family}.json"
+    try:
+        mtime = path.stat().st_mtime
+        cached = _workflow_cache.get(family)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        with open(path) as f:
+            tmpl = json.load(f)
+        _workflow_cache[family] = (mtime, tmpl)
+        return tmpl
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError as e:
+        log.warning(f"image workflow template {path} is invalid JSON: {e}")
+        return None
+
+
+def _fill_workflow(tmpl: dict, subs: dict) -> dict:
+    """Substitute placeholder tokens in a workflow template's node inputs, coercing
+    each to its declared type. Non-placeholder values (numbers, wiring lists) pass
+    through unchanged."""
+    coerce = {"str": str, "int": int, "float": float}
+
+    def sub(v):
+        if isinstance(v, str) and v in subs:
+            raw, typ = subs[v]
+            return coerce[typ](raw)
+        return v
+
+    out = {}
+    for node_id, node in tmpl.items():
+        if isinstance(node, dict) and isinstance(node.get("inputs"), dict):
+            out[node_id] = {**node, "inputs": {k: sub(v) for k, v in node["inputs"].items()}}
+        else:
+            out[node_id] = node
+    return out
+
+
 def _comfy_workflow(prompt: str, s: dict) -> dict:
-    """Build the txt2img graph in ComfyUI API format, shaped for the engine family.
-
-    sd15 / sdxl share the basic graph (they differ only in resolution and both load
-    via CheckpointLoaderSimple). flux needs a 16-channel SD3 latent, a FluxGuidance
-    node, and cfg=1 with the 'simple' scheduler."""
-    model, steps, size = s["model"], s["steps"], s["size"]
-    seed = secrets.randbelow(2**32)
-
-    if s["family"] == "flux":
-        return {
-            "4":  {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model}},
-            "6":  {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
-            "26": {"class_type": "FluxGuidance", "inputs": {"guidance": s["guidance"], "conditioning": ["6", 0]}},
-            "7":  {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
-            "5":  {"class_type": "EmptySD3LatentImage", "inputs": {"width": size, "height": size, "batch_size": 1}},
-            "3":  {"class_type": "KSampler", "inputs": {
-                "seed": seed, "steps": steps, "cfg": 1.0,
-                "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
-                "model": ["4", 0], "positive": ["26", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
-            "8":  {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
-            "9":  {"class_type": "SaveImage", "inputs": {"filename_prefix": "llmspaghetti", "images": ["8", 0]}},
-        }
-
-    return {
-        "3": {"class_type": "KSampler", "inputs": {
-            "seed": seed, "steps": steps, "cfg": s["cfg"],
-            "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
-            "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
-        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model}},
-        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": size, "height": size, "batch_size": 1}},
-        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
-        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": s["negative"], "clip": ["4", 1]}},
-        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
-        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "llmspaghetti", "images": ["8", 0]}},
+    """Build the txt2img graph by filling the family's template with request params."""
+    tmpl = _load_workflow_template(s["family"])
+    if tmpl is None:
+        raise RuntimeError(
+            f"no image workflow for architecture '{s['family']}' — expected "
+            f"{IMAGE_WORKFLOWS_DIR / (s['family'] + '.json')} (install its architecture pack)"
+        )
+    subs = {
+        "{{PROMPT}}":   (prompt,       "str"),
+        "{{NEGATIVE}}": (s["negative"], "str"),
+        "{{MODEL}}":    (s["model"],    "str"),
+        "{{STEPS}}":    (s["steps"],    "int"),
+        "{{WIDTH}}":    (s["size"],     "int"),
+        "{{HEIGHT}}":   (s["size"],     "int"),
+        "{{CFG}}":      (s["cfg"],      "float"),
+        "{{GUIDANCE}}": (s["guidance"], "float"),
+        "{{SEED}}":     (secrets.randbelow(2**32), "int"),
     }
+    return _fill_workflow(tmpl, subs)
+
+
+def _available_families() -> list[str]:
+    """Family templates currently installed (drives the UI's family choices)."""
+    try:
+        return sorted(p.stem for p in IMAGE_WORKFLOWS_DIR.glob("*.json"))
+    except Exception:
+        return []
 
 
 async def _generate_image_comfy(prompt: str) -> str:
@@ -1339,6 +1391,14 @@ async def api_image_engines():
             return JSONResponse(yaml.safe_load(f) or {"tiers": {}, "engines": []})
     except FileNotFoundError:
         return JSONResponse({"tiers": {}, "engines": []})
+
+
+@app.get("/api/image-workflows")
+async def api_image_workflows():
+    """Architecture families the router can currently drive — one per workflow
+    template installed under config/image-workflows/. The UI uses this for its
+    family picker; an 'install architecture' pack extends it by dropping a template."""
+    return JSONResponse({"families": _available_families()})
 
 
 @app.get("/api/image-config")

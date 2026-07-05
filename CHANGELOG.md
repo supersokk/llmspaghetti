@@ -8,6 +8,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (2026-07-05 — Data-driven image workflows in the router)
+
+- **Image workflows are now template files, not hardcoded Python.** The router's
+  `_comfy_workflow` reads `config/image-workflows/<family>.json` — a ComfyUI
+  API-format graph with placeholder tokens (`{{PROMPT}}`, `{{MODEL}}`, `{{STEPS}}`,
+  `{{WIDTH}}`/`{{HEIGHT}}`, `{{CFG}}`, `{{GUIDANCE}}`, `{{SEED}}`) that the router
+  substitutes per request (typed: prompt/model → str, steps/size/seed → int,
+  cfg/guidance → float; node wiring untouched). Ships `sd15`, `sdxl`, `flux`
+  templates (byte-identical to the old graphs — no behaviour change).
+- **Adding an image architecture is now a drop-in**, not a code change: a new
+  `<family>.json` template (+ optionally a ComfyUI custom node) makes it routable.
+  This is the low-level seam a future "install architecture" tap-install pack plugs
+  into. `GET /api/image-workflows` reports the installed families.
+
 ### Added (2026-07-05 — "Free VRAM" button + honest loaded-models)
 
 - **"Free VRAM" button on the Dashboard GPU card.** One click reclaims VRAM held by
