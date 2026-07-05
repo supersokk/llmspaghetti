@@ -22,7 +22,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `COMFYUI_STEPS`, `COMFYUI_SIZE`, `COMFYUI_CFG`, `COMFYUI_NEGATIVE`,
   `COMFYUI_TIMEOUT`); defaults target an SD1.5 checkpoint (`dreamshaper_8`) at
   512×512, patient enough for a shared 8GB card that spills to RAM.
-- Image replies now carry a provenance footer (`↳ LLMSpaghetti → dreamshaper_8 · image`).
+- Image replies now carry a provenance footer (`↳ LLMSpaghetti → dreamshaper_8 · image`)
+  and machine-readable `x_llmspaghetti` provenance, so SpagDesk's Insight rail +
+  role/model pills light up for image turns too.
+- **SpagDesk renders generated images inline** — a minimal DOM-based renderer
+  turns `![alt](url)` into an `<img>` (whitelisted sources only, never innerHTML),
+  so "draw me a …" shows the picture in the same chat instead of raw markdown.
+  Everything the manifesto listed now happens in one chat, no app-switching.
 
 ### Changed (2026-07-03 — Ollama-direct routing + Cerebras)
 

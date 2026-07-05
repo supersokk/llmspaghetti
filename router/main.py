@@ -883,6 +883,7 @@ def _image_json(content: str, model: str = "image") -> dict:
             "finish_reason": "stop",
         }],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "x_llmspaghetti": _provenance_meta(model, "image", False),
     }
 
 
@@ -909,6 +910,7 @@ async def _image_sse(content: str, model: str = "image") -> AsyncIterator[bytes]
     chunk = {
         "id": cid, "object": "chat.completion.chunk", "model": model,
         "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
+        "x_llmspaghetti": _provenance_meta(model, "image", False),
     }
     yield f"data: {json.dumps(chunk)}\n\n".encode()
     done = {

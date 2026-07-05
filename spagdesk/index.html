@@ -42,6 +42,8 @@
   .msg.user .bubble{background:var(--surface2)}
   .bubble code,.bubble pre{font-family:'JetBrains Mono','Fira Code',monospace;
     font-size:.85rem}
+  .bubble img.genimg{max-width:100%;border-radius:8px;margin:.3rem 0;display:block;
+    border:1px solid var(--border)}
 
   .meta{display:flex;align-items:center;gap:.6rem;margin-top:.45rem;
     font-size:.74rem;color:var(--dim);flex-wrap:wrap}
@@ -156,6 +158,33 @@ function renderInsight(info){
     <div class="insight-row"><span class="k">Router</span><span class="v" style="color:var(--green)">llmspaghetti</span></div>`;
 }
 
+// Minimal inline renderer: turn ![alt](url) markdown into a real <img>, leave
+// everything else as text. Not a full markdown parser — just enough for the
+// image lane. Built with DOM nodes (never innerHTML) so model output can't
+// inject markup, and only whitelisted image sources are turned into <img>.
+const IMG_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+function renderContent(bubble, text){
+  bubble.textContent = "";
+  let last = 0, m, hasImg = false;
+  IMG_RE.lastIndex = 0;
+  while((m = IMG_RE.exec(text))){
+    if(m.index > last) bubble.appendChild(document.createTextNode(text.slice(last, m.index)));
+    const url = m[1];
+    if(/^(\/images\/|https?:\/\/|data:image\/)/.test(url)){
+      const img = document.createElement("img");
+      img.className = "genimg"; img.src = url; img.alt = "generated image";
+      img.loading = "lazy";
+      bubble.appendChild(img);
+      hasImg = true;
+    }else{
+      bubble.appendChild(document.createTextNode(m[0]));  // unknown source → keep literal
+    }
+    last = m.index + m[0].length;
+  }
+  if(last < text.length) bubble.appendChild(document.createTextNode(text.slice(last)));
+  return hasImg;
+}
+
 // Build one assistant message element; returns handles to update it live.
 function addMessage(who){
   $empty && $empty.remove();
@@ -245,7 +274,7 @@ async function send(){
     }
     const clean = full.replace(FOOTER_RE, "").trim();
     if(clean){
-      bubble.textContent = clean;
+      renderContent(bubble, clean);          // render inline images; text stays text
       messages.push({ role:"assistant", content: clean });
       renderInsight(info);
       addCorrectionRow(wrap, text, info);
