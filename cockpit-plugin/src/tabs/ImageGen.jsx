@@ -155,6 +155,19 @@ export default function ImageGen() {
     proc.then(() => finish(true), (e) => finish(false, e));
   };
 
+  // Start the ComfyUI systemd service (installed via `spag comfyui install`).
+  const startComfy = () => {
+    setAlert({ type: "ok", msg: "Starting ComfyUI service…" });
+    const proc = cockpit.spawn(["bash", "-c", PATHFIX + "systemctl start comfyui"],
+      { superuser: "try", err: "message" });
+    proc.then(
+      () => { setAlert({ type: "ok", msg: "ComfyUI starting — give it ~10s, then it'll connect." });
+              setTimeout(loadAll, 8000); },
+      (e) => setAlert({ type: "err",
+              msg: `Couldn't start the service (${e && e.message || e}). Not installed yet? Run on the box:  spag comfyui install` }),
+    );
+  };
+
   const runTest = async () => {
     if (testing || !testPrompt.trim()) return;
     setTesting(true); setTestImg(null); setTestMsg("Generating… (first run loads the model)");
@@ -222,10 +235,17 @@ export default function ImageGen() {
             {comfy.ok
               ? `${comfy.gpu} · ${comfy.vramGb.toFixed(1)} GB VRAM`
               : comfy.ok === false
-                ? "Start ComfyUI on the host (port 8188) — engine cards can't verify fit until it's up."
+                ? "Not running on :8188. Start it below, or set it up once with  spag comfyui install"
                 : ""}
           </div>
         </div>
+        {comfy.ok === false && (
+          <button onClick={startComfy}
+            style={{ padding: "0.4rem 0.9rem", background: C.accent, color: "white", border: "none",
+                     borderRadius: 6, fontSize: "0.82rem", fontWeight: 600, cursor: "pointer" }}>
+            Start ComfyUI
+          </button>
+        )}
         {cfg && (
           <label style={{ display: "flex", alignItems: "center", gap: "0.5rem",
                           fontSize: "0.82rem", color: C.text, cursor: "pointer" }}>

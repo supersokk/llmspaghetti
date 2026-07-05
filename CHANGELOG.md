@@ -8,6 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-05 — ComfyUI as a managed service + first-run setup)
+
+- **`scripts/comfyui-setup.sh`** — idempotent installer that clones ComfyUI (if
+  missing), builds its venv + PyTorch, picks the VRAM flag from the actual GPU
+  (`--lowvram` under 10 GB, default above, `--cpu` with no GPU), and registers a
+  **systemd `comfyui.service`** so image generation **starts on boot and restarts
+  on failure** — no more `nohup`. Runs as the normal user (models/venv live in
+  their home); sudo only for the unit.
+- **`spag comfyui <install|start|stop|restart|status|logs>`** — manage it from the CLI.
+- **Image Generator tab** gains a **Start ComfyUI** button when the backend is down,
+  and points first-timers at `spag comfyui install`. Bootstrap now ships the setup script.
+
 ### Added (2026-07-05 — Image Generator tab + multi-engine image routing)
 
 - **New Cockpit "Image Generator" tab.** A curated engine catalog grouped by

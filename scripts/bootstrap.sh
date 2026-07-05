@@ -107,6 +107,7 @@ if [[ -d "$SCRIPT_DIR/../console" ]]; then
   cp "$SCRIPT_DIR/gpu-detect.sh"            "$INSTALL_DIR/scripts/"
   cp "$SCRIPT_DIR/install-gpu-drivers.sh"   "$INSTALL_DIR/scripts/"
   cp "$SCRIPT_DIR/collect-stats.sh"         "$INSTALL_DIR/scripts/"  # dashboard live stats
+  cp "$SCRIPT_DIR/comfyui-setup.sh"         "$INSTALL_DIR/scripts/"  # image-gen backend installer
   cp "$SCRIPT_DIR/spag-cli.sh"              /usr/local/bin/spag
   cp "$SCRIPT_DIR/spag-watchdog.sh"         /usr/local/bin/llmspaghetti-watchdog
   chmod +x /usr/local/bin/spag /usr/local/bin/llmspaghetti-watchdog

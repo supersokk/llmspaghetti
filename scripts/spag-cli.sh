@@ -94,6 +94,35 @@ cmd_models() {
   echo ""
 }
 
+cmd_comfyui() {
+  local sub="${1:-}"; shift || true
+  local setup="$INSTALL_DIR/scripts/comfyui-setup.sh"
+  case "$sub" in
+    install|setup)
+      [[ -f "$setup" ]] || error "ComfyUI setup script not found at $setup"
+      # The setup runs as a normal user (its venv/models live in that user's home)
+      # and sudos only for the systemd bits. If invoked via sudo, drop back to the
+      # real user; otherwise run it directly.
+      if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
+        info "Running ComfyUI setup as $SUDO_USER…"
+        sudo -u "$SUDO_USER" bash "$setup"
+      else
+        bash "$setup"
+      fi
+      ;;
+    start)   info "Starting ComfyUI...";   systemctl start comfyui   && success "Started" ;;
+    stop)    info "Stopping ComfyUI...";    systemctl stop comfyui    && success "Stopped" ;;
+    restart) info "Restarting ComfyUI..."; systemctl restart comfyui && success "Restarted" ;;
+    status)  systemctl status comfyui --no-pager ;;
+    logs)    journalctl -u comfyui -f ;;
+    *)
+      echo "Usage: spag comfyui [install|start|stop|restart|status|logs]"
+      echo "  install  — set up ComfyUI + a boot service (first-time setup)"
+      echo "  start/stop/restart/status/logs — manage the service"
+      ;;
+  esac
+}
+
 cmd_update() {
   require_root update
   info "Pulling latest images..."
@@ -284,6 +313,7 @@ case "$cmd" in
   logs)             cmd_logs "$@" ;;
   pull)             cmd_pull "$@" ;;
   models)           cmd_models ;;
+  comfyui)          cmd_comfyui "$@" ;;
   update)           cmd_update ;;
   config)           cmd_config ;;
   key)              cmd_key ;;
