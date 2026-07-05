@@ -338,10 +338,16 @@ export default function Models() {
   const [gpuVram, setGpuVram]       = useState(null);
   const [pulling, setPulling]       = useState(null);
   const [pullLog, setPullLog]       = useState("");
+  const [pullProg, setPullProg]     = useState(null);  // {pct,label,status} live download bar
   const [customModel, setCustomModel] = useState("");
   const [filter, setFilter]         = useState("all");
   const [alert, setAlert]           = useState(null);
   const [busy, setBusy]             = useState({});  // {modelName: action}
+  // HuggingFace GGUF search (Ollama pulls GGUF straight from HF via hf.co/<repo>)
+  const [hfQuery, setHfQuery]       = useState("");
+  const [hfResults, setHfResults]   = useState(null); // null=idle, []=no hits, [...]=hits
+  const [hfSearching, setHfSearching] = useState(false);
+  const [hfOpen, setHfOpen]         = useState({});    // {repo: [quant,...]} expanded quant lists
   const [openConfig, setOpenConfig] = useState(null);
   const intervalRef = useRef(null);
 
@@ -438,28 +444,98 @@ export default function Models() {
     }
   };
 
-  const pullModel = async (modelId) => {
+  // Parse Ollama's pull stream into a progress bar. Ollama emits lines like
+  // "pulling <digest>:  45% ▕███ ▏ 2.1 GB/4.7 GB  35 MB/s  1m2s" (carriage-return
+  // updated), plus phase lines ("pulling manifest", "verifying", "success").
+  const parseProgress = (chunk) => {
+    const tail = chunk.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
+    const pctM  = tail.match(/(\d+)%/);
+    const sizeM = tail.match(/([\d.]+\s*[KMGT]?B)\s*\/\s*([\d.]+\s*[KMGT]?B)/);
+    const phase = tail.match(/^\s*(pulling manifest|verifying|writing|success|pulling\b[^:]*)/i);
+    return {
+      pct:   pctM ? Math.min(100, parseInt(pctM[1], 10)) : null,
+      label: sizeM ? `${sizeM[1]} / ${sizeM[2]}` : (phase ? phase[1].trim() : tail.trim().slice(0, 48)),
+      status: /success/i.test(tail) ? "done" : "run",
+    };
+  };
+
+  // Non-blocking pull: kicks off the download and returns immediately. The search
+  // field and the rest of the panel stay live; progress shows in its own strip.
+  const pullModel = (modelId) => {
+    if (pulling) {                       // one download at a time — Ollama serialises anyway
+      setAlert({ type: "err", msg: `Already downloading ${pulling} — let it finish first.` });
+      return;
+    }
     setPulling(modelId);
     setPullLog("");
+    setPullProg({ pct: null, label: "starting…", status: "run" });
     setAlert(null);
+    const proc = cockpit.spawn(["bash", "-c", `${PATHFIX} ollama pull '${modelId}'`],
+      { superuser: "try", err: "message" });
+    proc.stream(d => {
+      setPullLog(prev => (prev + d).slice(-4000));
+      const p = parseProgress(d);
+      setPullProg(prev => ({
+        pct:   p.pct != null ? p.pct : (prev ? prev.pct : null),
+        label: p.label || (prev ? prev.label : ""),
+        status: p.status,
+      }));
+    });
+    // Cleanup runs on both success and failure. Uses the two-arg then() form —
+    // cockpit's process promise doesn't reliably implement .finally().
+    const finish = () => { setPulling(null); setPullProg(null); setPullLog(""); refresh(); };
+    proc.then(
+      () => { setAlert({ type: "ok",  msg: `${modelId} downloaded` }); finish(); },
+      (err) => { setAlert({ type: "err", msg: `Pull failed: ${err && err.message || err}` }); finish(); },
+    );
+  };
+
+  // ── HuggingFace GGUF search ────────────────────────────────────────────────
+  // Ollama pulls GGUF models straight from HF (`ollama pull hf.co/<repo>:<quant>`),
+  // so we search HF's public API server-side (via spawn+curl — no CORS) and pull
+  // the chosen quant through the same path above.
+  const searchHF = async () => {
+    const q = hfQuery.trim();
+    if (!q || hfSearching) return;
+    setHfSearching(true);
+    setHfResults(null);
     try {
-      await new Promise((res, rej) => {
-        const proc = cockpit.spawn(["bash", "-c", `${PATHFIX} ollama pull '${modelId}'`],
-          { superuser: "try", err: "message" });
-        proc.stream(d => setPullLog(prev => prev + d));
-        proc.then(() => {
-          setAlert({ type: "ok", msg: `${modelId} downloaded` });
-          res();
-        }).catch(err => {
-          setAlert({ type: "err", msg: `Pull failed: ${err.message}` });
-          rej(err);
-        });
-      });
+      const url = `https://huggingface.co/api/models?search=${encodeURIComponent(q)}`
+                + `&filter=gguf&sort=downloads&direction=-1&limit=15`;
+      const raw = await run(`curl -sf --max-time 20 '${url}'`);
+      let list = [];
+      try { list = JSON.parse(raw || "[]"); } catch { list = []; }
+      setHfResults(list.map(m => ({
+        id: m.id || m.modelId,
+        downloads: m.downloads || 0,
+        likes: m.likes || 0,
+      })).filter(m => m.id));
+    } catch {
+      setHfResults([]);
     } finally {
-      setPulling(null);
-      setPullLog("");
-      refresh();
+      setHfSearching(false);
     }
+  };
+
+  // Lazily fetch a repo's available GGUF quants (from its file list).
+  const loadQuants = async (repo) => {
+    if (hfOpen[repo]) { setHfOpen(o => ({ ...o, [repo]: undefined })); return; }  // toggle closed
+    setHfOpen(o => ({ ...o, [repo]: [] }));
+    const raw = await run(`curl -sf --max-time 20 'https://huggingface.co/api/models/${repo}'`);
+    let quants = [];
+    try {
+      const info = JSON.parse(raw || "{}");
+      const ggufs = (info.siblings || [])
+        .map(s => s.rfilename || "")
+        .filter(f => /\.gguf$/i.test(f));
+      const seen = new Set();
+      for (const f of ggufs) {
+        const m = f.match(/(IQ\d[\w]*|Q\d[\w]*|BF16|F16|F32)/i);
+        const tag = m ? m[1].toUpperCase() : f.replace(/\.gguf$/i, "");
+        if (!seen.has(tag)) { seen.add(tag); quants.push(tag); }
+      }
+    } catch { /* leave empty */ }
+    setHfOpen(o => ({ ...o, [repo]: quants }));
   };
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -635,15 +711,120 @@ export default function Models() {
         </div>
       </div>
 
-      {/* Pull log */}
-      {pullLog && (
+      {/* Search HuggingFace (GGUF) — Ollama pulls these directly via hf.co/<repo> */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`,
+                    borderRadius: "10px", padding: "1rem 1.25rem", marginBottom: "1rem" }}>
+        <div style={{ fontSize: "0.72rem", fontWeight: 600, color: C.dim,
+                      textTransform: "uppercase", letterSpacing: "0.05em",
+                      marginBottom: "0.75rem" }}>Search HuggingFace 🤗 <span style={{
+                      fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· GGUF models Ollama can pull</span></div>
+        <div style={{ display: "flex", gap: "0.75rem" }}>
+          <input type="text" placeholder="e.g. qwen2.5 coder, llama 3.1, mistral nemo…"
+            value={hfQuery}
+            onChange={e => setHfQuery(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && searchHF()}
+            style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`,
+                     borderRadius: "6px", color: C.text, padding: "0.5rem 0.75rem",
+                     fontSize: "0.88rem" }} />
+          <button disabled={!hfQuery.trim() || hfSearching} onClick={searchHF}
+            style={{ padding: "0.5rem 1.1rem", background: C.accent, color: "white",
+                     border: "none", borderRadius: "6px", fontSize: "0.85rem",
+                     fontWeight: 600, cursor: !hfQuery.trim() || hfSearching ? "not-allowed" : "pointer",
+                     display: "flex", alignItems: "center", gap: "0.4rem",
+                     opacity: !hfQuery.trim() || hfSearching ? 0.6 : 1 }}>
+            {hfSearching
+              ? <><div style={{ width: 13, height: 13, border: "2px solid rgba(255,255,255,0.3)",
+                                borderTopColor: "white", borderRadius: "50%",
+                                animation: "spin 0.7s linear infinite" }} /> Searching…</>
+              : "🔍 Search"}
+          </button>
+        </div>
+
+        {hfResults != null && hfResults.length === 0 && !hfSearching && (
+          <div style={{ fontSize: "0.8rem", color: C.dim, marginTop: "0.75rem" }}>
+            No GGUF models found for that search. Try broader terms.
+          </div>
+        )}
+
+        {hfResults && hfResults.length > 0 && (
+          <div style={{ marginTop: "0.85rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {hfResults.map(r => {
+              const quants = hfOpen[r.id];
+              const dl = r.downloads >= 1000 ? `${(r.downloads / 1000).toFixed(1)}k` : `${r.downloads}`;
+              return (
+                <div key={r.id} style={{ background: C.bg, border: `1px solid ${C.border}`,
+                                         borderRadius: "8px", padding: "0.6rem 0.8rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                    <span style={{ flex: 1, fontFamily: "monospace", fontSize: "0.82rem",
+                                   color: C.text, overflow: "hidden", textOverflow: "ellipsis",
+                                   whiteSpace: "nowrap" }}>{r.id}</span>
+                    <span style={{ fontSize: "0.72rem", color: C.dim }}>↓ {dl}</span>
+                    <a href={`https://huggingface.co/${r.id}`} target="_blank" rel="noreferrer"
+                       style={{ fontSize: "0.72rem", color: C.accent2 }}>view</a>
+                    <button onClick={() => loadQuants(r.id)}
+                      style={{ padding: "0.28rem 0.7rem", fontSize: "0.76rem", fontWeight: 600,
+                               border: `1px solid ${C.border}`, borderRadius: "6px", cursor: "pointer",
+                               background: quants ? C.border : "transparent", color: C.text }}>
+                      {quants ? "quants ▴" : "quants ▾"}
+                    </button>
+                  </div>
+                  {quants && quants.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.6rem" }}>
+                      {quants.map(q => {
+                        const target = `hf.co/${r.id}:${q}`;
+                        return (
+                          <button key={q} disabled={!!pulling} onClick={() => pullModel(target)}
+                            style={{ padding: "0.28rem 0.7rem", fontSize: "0.75rem", fontWeight: 600,
+                                     border: "none", borderRadius: "6px",
+                                     cursor: pulling ? "not-allowed" : "pointer",
+                                     opacity: pulling ? 0.5 : 1,
+                                     background: C.accent, color: "white" }}>
+                            ↓ {q}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {quants && quants.length === 0 && (
+                    <div style={{ fontSize: "0.74rem", color: C.dim, marginTop: "0.5rem" }}>
+                      Loading quants… (or none listed — try “view” on HF)
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Download progress — non-blocking; search stays usable while this runs */}
+      {pulling && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`,
                       borderRadius: "10px", padding: "1rem 1.25rem", marginBottom: "1rem" }}>
-          <div style={{ fontSize: "0.72rem", fontWeight: 600, color: C.dim,
-                        textTransform: "uppercase", letterSpacing: "0.05em",
-                        marginBottom: "0.5rem" }}>Pull progress</div>
-          <pre style={{ fontSize: "0.78rem", color: C.dim, maxHeight: "180px",
-                        overflow: "auto", whiteSpace: "pre-wrap", margin: 0 }}>{pullLog}</pre>
+          <div style={{ display: "flex", justifyContent: "space-between",
+                        alignItems: "center", marginBottom: "0.55rem" }}>
+            <span style={{ fontSize: "0.85rem", fontWeight: 600, color: C.text }}>
+              ↓ Downloading <span style={{ fontFamily: "monospace", color: C.accent2 }}>{pulling}</span>
+            </span>
+            <span style={{ fontSize: "0.78rem", color: C.dim, fontFamily: "monospace" }}>
+              {pullProg && pullProg.label}
+              {pullProg && pullProg.pct != null ? `  ·  ${pullProg.pct}%` : ""}
+            </span>
+          </div>
+          <div style={{ height: 8, background: C.bg, borderRadius: 5, overflow: "hidden",
+                        border: `1px solid ${C.border}` }}>
+            <div style={{
+              height: "100%",
+              width: pullProg && pullProg.pct != null ? `${pullProg.pct}%` : "100%",
+              background: pullProg && pullProg.status === "done" ? C.green : C.accent,
+              transition: "width 0.3s ease",
+              // indeterminate shimmer while we have no % yet (e.g. "pulling manifest")
+              opacity: pullProg && pullProg.pct == null ? 0.5 : 1,
+            }} />
+          </div>
+          <div style={{ fontSize: "0.72rem", color: C.dim, marginTop: "0.45rem" }}>
+            Runs in the background — you can keep searching and queue the next one after.
+          </div>
         </div>
       )}
 

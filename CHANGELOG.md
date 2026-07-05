@@ -8,6 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-05 — HuggingFace search + non-blocking pulls in Models tab)
+
+- **Search HuggingFace for GGUF models right in the Models tab.** Ollama can pull
+  GGUF straight from HF (`ollama pull hf.co/<repo>:<quant>`), so the tab queries
+  HF's API server-side (via `cockpit.spawn` curl — no CORS), ranks by downloads,
+  and lets you expand a repo to pick a quant (Q4_K_M, Q8_0, …) and pull it.
+- **Real download progress bar** — Ollama's pull stream is parsed into a percentage
+  + size bar (was a raw text log), with an indeterminate state for the manifest phase.
+- **Pulls are non-blocking** — the download runs in its own strip while the search
+  field stays live, so you can line up the next model instead of waiting. One
+  download at a time (Ollama serialises anyway); a second attempt is politely refused.
+
 ### Added (2026-07-05 — Local image generation via ComfyUI)
 
 - **The `image` role now generates locally through ComfyUI**, self-hosted on the
