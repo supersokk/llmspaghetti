@@ -53,6 +53,7 @@ services:
     environment:
       - LITELLM_URL=http://litellm:4000
       - OLLAMA_URL=http://host.docker.internal:11434
+      - COMFYUI_URL=http://host.docker.internal:8188
       - INSTALL_DIR=/opt/llmspaghetti
     depends_on:
       - litellm

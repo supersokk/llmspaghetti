@@ -44,6 +44,21 @@ OLLAMA_URL       = os.environ.get("OLLAMA_URL", "http://host.docker.internal:114
 OPENAI_API_KEY   = os.environ.get("OPENAI_API_KEY", "")
 EMBED_MODEL      = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 
+# ── Local image generation via ComfyUI (self-hosted, on the host beside Ollama) ─
+# The router queues a txt2img workflow to ComfyUI's API, polls for the PNG, and
+# saves it into IMAGES_DIR — same serve/inline path DALL-E used. Preferred over
+# DALL-E when enabled; DALL-E stays as a cloud fallback if an OpenAI key is set.
+COMFYUI_URL      = os.environ.get("COMFYUI_URL", "http://host.docker.internal:8188")
+COMFYUI_ENABLED  = os.environ.get("COMFYUI_ENABLED", "true").lower() not in ("0", "false", "no", "")
+COMFYUI_MODEL    = os.environ.get("COMFYUI_MODEL", "dreamshaper_8.safetensors")
+COMFYUI_STEPS    = int(os.environ.get("COMFYUI_STEPS", "20"))
+COMFYUI_SIZE     = int(os.environ.get("COMFYUI_SIZE", "512"))
+COMFYUI_CFG      = float(os.environ.get("COMFYUI_CFG", "7.0"))
+COMFYUI_TIMEOUT  = float(os.environ.get("COMFYUI_TIMEOUT", "300"))  # slow on a shared 8GB card
+COMFYUI_NEGATIVE = os.environ.get(
+    "COMFYUI_NEGATIVE", "text, watermark, blurry, low quality, deformed, extra limbs"
+)
+
 
 def _server_ip() -> str:
     try:
@@ -761,8 +776,85 @@ def _extract(messages: list) -> tuple[str, Context]:
 
 # ── Image generation ──────────────────────────────────────────────────────────
 
-async def _generate_image(prompt: str) -> str:
-    """Call DALL-E 3, save image locally, return public URL."""
+def _comfy_display_model() -> str:
+    """Clean label for provenance/logs: 'dreamshaper_8.safetensors' → 'dreamshaper_8'."""
+    return COMFYUI_MODEL.rsplit(".", 1)[0]
+
+
+def _comfy_workflow(prompt: str) -> dict:
+    """Minimal SD1.5 txt2img graph in ComfyUI API format (the headless equivalent
+    of the default 'Image Generation' template)."""
+    return {
+        "3": {"class_type": "KSampler", "inputs": {
+            "seed": secrets.randbelow(2**32), "steps": COMFYUI_STEPS, "cfg": COMFYUI_CFG,
+            "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0,
+            "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": COMFYUI_MODEL}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {
+            "width": COMFYUI_SIZE, "height": COMFYUI_SIZE, "batch_size": 1}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": COMFYUI_NEGATIVE, "clip": ["4", 1]}},
+        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "llmspaghetti", "images": ["8", 0]}},
+    }
+
+
+async def _generate_image_comfy(prompt: str) -> str:
+    """Queue a txt2img job to ComfyUI, poll until the PNG is ready, copy it into
+    IMAGES_DIR, and return its public URL. Raises on error/timeout so the caller
+    can fall back to DALL-E or plain text."""
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+    q = await _ext_client.post(
+        f"{COMFYUI_URL}/prompt",
+        json={"prompt": _comfy_workflow(prompt), "client_id": secrets.token_hex(8)},
+        timeout=30.0,
+    )
+    q.raise_for_status()
+    qj = q.json()
+    prompt_id = qj.get("prompt_id")
+    if not prompt_id:
+        # Validation failure (bad checkpoint name, missing node, …) — surface it.
+        raise RuntimeError(f"ComfyUI rejected the workflow: {qj.get('node_errors') or qj}")
+
+    # Poll /history until the job produces images (or errors out). Generation on a
+    # shared 8GB card can spill to RAM and run tens of seconds — hence the patience.
+    deadline = time.monotonic() + COMFYUI_TIMEOUT
+    images = None
+    while time.monotonic() < deadline:
+        h = await _ext_client.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=15.0)
+        h.raise_for_status()
+        entry = h.json().get(prompt_id)
+        if entry:
+            if entry.get("status", {}).get("status_str") == "error":
+                raise RuntimeError(f"ComfyUI reported an error: {entry['status'].get('messages')}")
+            for node in entry.get("outputs", {}).values():
+                if node.get("images"):
+                    images = node["images"]
+                    break
+            if images:
+                break
+        await asyncio.sleep(1.0)
+
+    if not images:
+        raise RuntimeError(f"ComfyUI produced no image within {COMFYUI_TIMEOUT:.0f}s")
+
+    info = images[0]
+    img = await _ext_client.get(
+        f"{COMFYUI_URL}/view",
+        params={"filename": info["filename"],
+                "subfolder": info.get("subfolder", ""),
+                "type": info.get("type", "output")},
+        timeout=30.0,
+    )
+    img.raise_for_status()
+    fname = f"{secrets.token_hex(8)}.png"
+    (IMAGES_DIR / fname).write_bytes(img.content)
+    return f"{IMAGES_SERVE_URL}/{fname}"
+
+
+async def _generate_image_dalle(prompt: str) -> str:
+    """Call DALL-E 3, save image locally, return public URL (cloud fallback)."""
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     gen = await _ext_client.post(
@@ -786,11 +878,11 @@ async def _generate_image(prompt: str) -> str:
     return f"{IMAGES_SERVE_URL}/{fname}"
 
 
-def _image_json(content: str) -> dict:
+def _image_json(content: str, model: str = "image") -> dict:
     return {
         "id": f"chatcmpl-img-{secrets.token_hex(6)}",
         "object": "chat.completion",
-        "model": "dall-e-3",
+        "model": model,
         "choices": [{
             "index": 0,
             "message": {"role": "assistant", "content": content},
@@ -818,15 +910,15 @@ async def _text_sse(content: str, model: str, prov: dict | None = None) -> Async
     yield b"data: [DONE]\n\n"
 
 
-async def _image_sse(content: str) -> AsyncIterator[bytes]:
+async def _image_sse(content: str, model: str = "image") -> AsyncIterator[bytes]:
     cid = f"chatcmpl-img-{secrets.token_hex(6)}"
     chunk = {
-        "id": cid, "object": "chat.completion.chunk", "model": "dall-e-3",
+        "id": cid, "object": "chat.completion.chunk", "model": model,
         "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
     }
     yield f"data: {json.dumps(chunk)}\n\n".encode()
     done = {
-        "id": cid, "object": "chat.completion.chunk", "model": "dall-e-3",
+        "id": cid, "object": "chat.completion.chunk", "model": model,
         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
     }
     yield f"data: {json.dumps(done)}\n\n".encode()
@@ -977,10 +1069,13 @@ async def lifespan(app: FastAPI):
     _load_quota_state()
     await _check_vram_budget()
     log.info(f"router ready  →  {LITELLM_URL}")
-    if OPENAI_API_KEY:
-        log.info(f"image generation enabled  (saves to {IMAGES_DIR})")
+    if COMFYUI_ENABLED:
+        log.info(f"image generation: ComfyUI  ({COMFYUI_URL}, {_comfy_display_model()})"
+                 f"{' + DALL-E fallback' if OPENAI_API_KEY else ''}")
+    elif OPENAI_API_KEY:
+        log.info(f"image generation: DALL-E  (saves to {IMAGES_DIR})")
     else:
-        log.info("image generation disabled  (no OPENAI_API_KEY)")
+        log.info("image generation disabled  (no ComfyUI, no OPENAI_API_KEY)")
     yield
     await _client.aclose()
     await _ollama_client.aclose()
@@ -1265,27 +1360,43 @@ async def proxy(request: Request, path: str):
                 elif qstatus == "warn":
                     log.warning(f"quota warning for {primary!r}: approaching daily limit")
 
-                # ── Image role: early return via DALL-E ───────────────────────
-                if role_name == "image" and OPENAI_API_KEY:
-                    try:
-                        img_url = await _generate_image(last_msg)
+                # ── Image role: generate locally (ComfyUI), else DALL-E ───────
+                if role_name == "image":
+                    img_url, img_model = None, None
+                    # Prefer local, self-hosted ComfyUI — no cloud key, no per-image cost.
+                    if COMFYUI_ENABLED:
+                        try:
+                            img_url   = await _generate_image_comfy(last_msg)
+                            img_model = _comfy_display_model()
+                        except Exception as e:
+                            log.warning(f"ComfyUI image gen failed ({e!r})")
+                    # Cloud fallback if a key is configured and local didn't produce one.
+                    if img_url is None and OPENAI_API_KEY:
+                        try:
+                            img_url   = await _generate_image_dalle(last_msg)
+                            img_model = "dall-e-3"
+                        except Exception as e:
+                            log.warning(f"DALL-E failed ({e!r})")
+
+                    if img_url:
                         content = f"![Generated image]({img_url})"
-                        log.info(f"image saved → {img_url}")
-                        _increment_quota("dall-e-3")
+                        if _provenance_enabled():
+                            content += _provenance_footer(img_model, "image")
+                        log.info(f"image saved → {img_url}  ({img_model})")
+                        _increment_quota(img_model)
                         _routing_log.appendleft({
                             "ts": time.time(), "tier": tier,
-                            "role": role_name, "model": "dall-e-3",
+                            "role": role_name, "model": img_model,
                             "message": last_msg[:120], "fallback": False,
                         })
                         if is_streaming:
                             return StreamingResponse(
-                                _image_sse(content),
+                                _image_sse(content, img_model),
                                 media_type="text/event-stream",
                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                             )
-                        return JSONResponse(_image_json(content))
-                    except Exception as e:
-                        log.warning(f"DALL-E failed ({e!r}) — falling back to text model")
+                        return JSONResponse(_image_json(content, img_model))
+                    log.warning("no image backend produced an image — falling back to text model")
 
                 if not is_utility:
                     _increment_quota(primary)

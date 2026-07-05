@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-05 — Local image generation via ComfyUI)
+
+- **The `image` role now generates locally through ComfyUI**, self-hosted on the
+  host beside Ollama — no cloud key, no per-image cost. The router queues a
+  txt2img workflow to ComfyUI's API (`COMFYUI_URL/prompt`), polls `/history` for
+  the PNG, copies it into `IMAGES_DIR`, and returns it as inline markdown — the
+  same serve-by-URL path (`/images/*` via Caddy) DALL-E used. So "draw me a …"
+  in the *same chat* returns an image without switching apps.
+- **DALL-E stays as a cloud fallback** — if ComfyUI is disabled/unreachable and
+  `OPENAI_API_KEY` is set, the router falls back to DALL-E, then to a text model.
+- **Tunable via env** (`COMFYUI_URL`, `COMFYUI_ENABLED`, `COMFYUI_MODEL`,
+  `COMFYUI_STEPS`, `COMFYUI_SIZE`, `COMFYUI_CFG`, `COMFYUI_NEGATIVE`,
+  `COMFYUI_TIMEOUT`); defaults target an SD1.5 checkpoint (`dreamshaper_8`) at
+  512×512, patient enough for a shared 8GB card that spills to RAM.
+- Image replies now carry a provenance footer (`↳ LLMSpaghetti → dreamshaper_8 · image`).
+
 ### Changed (2026-07-03 — Ollama-direct routing + Cerebras)
 
 - **Local models now route straight to Ollama, by their raw name.** The router
