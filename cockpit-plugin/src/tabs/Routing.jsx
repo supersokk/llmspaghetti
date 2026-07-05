@@ -181,7 +181,7 @@ function RoleCard({ role, entry, availableModels, onChange, health }) {
     <div style={{
       background: C.surface, border: `1px solid ${C.border}`,
       borderRadius: "10px", padding: "1.1rem 1.25rem",
-      opacity: !primary ? 0.6 : 1,
+      opacity: role !== "image" && !primary ? 0.6 : 1,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.75rem" }}>
         <span style={{ fontSize: "1.2rem" }}>{meta.icon}</span>
@@ -199,36 +199,47 @@ function RoleCard({ role, entry, availableModels, onChange, health }) {
         )}
       </div>
 
-      <div style={{ marginBottom: "0.55rem" }}>
-        <div style={labelStyle}>Primary</div>
-        <select
-          value={primary || "null"}
-          onChange={e => onChange(role, "primary", e.target.value === "null" ? null : e.target.value)}
-          style={selStyle}>
-          <option value="null">— disabled (no routing) —</option>
-          {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </div>
-
-      {primary && (
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.25rem" }}>
-            <div style={labelStyle}>Fallback</div>
-            {fallback && (
-              <div style={{ width: 6, height: 6, borderRadius: "50%",
-                            background: dotColor(fallback), marginBottom: "0.25rem" }} />
-            )}
-          </div>
-          <select
-            value={fallback || "none"}
-            onChange={e => onChange(role, "fallback", e.target.value === "none" ? null : e.target.value)}
-            style={{ ...selStyle, color: fallback ? C.text : C.dim }}>
-            <option value="none">— none (no fallback) —</option>
-            {availableModels
-              .filter(m => m !== primary)
-              .map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
+      {role === "image" ? (
+        <div style={{ fontSize: "0.82rem", color: C.dim, lineHeight: 1.5,
+                      background: C.bg, border: `1px solid ${C.border}`,
+                      borderRadius: "8px", padding: "0.7rem 0.85rem" }}>
+          🖼 Handled by the <strong style={{ color: C.accent2 }}>Image Generator</strong> tab —
+          image requests go to ComfyUI using the engine you pick there. No model to set here.
         </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: "0.55rem" }}>
+            <div style={labelStyle}>Primary</div>
+            <select
+              value={primary || "null"}
+              onChange={e => onChange(role, "primary", e.target.value === "null" ? null : e.target.value)}
+              style={selStyle}>
+              <option value="null">— disabled (no routing) —</option>
+              {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+
+          {primary && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.25rem" }}>
+                <div style={labelStyle}>Fallback</div>
+                {fallback && (
+                  <div style={{ width: 6, height: 6, borderRadius: "50%",
+                                background: dotColor(fallback), marginBottom: "0.25rem" }} />
+                )}
+              </div>
+              <select
+                value={fallback || "none"}
+                onChange={e => onChange(role, "fallback", e.target.value === "none" ? null : e.target.value)}
+                style={{ ...selStyle, color: fallback ? C.text : C.dim }}>
+                <option value="none">— none (no fallback) —</option>
+                {availableModels
+                  .filter(m => m !== primary)
+                  .map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-05 — Add any HuggingFace image model + activate custom checkpoints)
+
+- **"Add from HuggingFace" in the Image Generator tab.** Paste a model repo URL →
+  it lists the repo's `.safetensors`, infers each file's ComfyUI destination
+  (`checkpoints/`, `diffusion_models/`, `vae/`, `clip/`, `loras/`) and whether it's
+  a **ready checkpoint** or a **component**, and downloads the one you pick (with a
+  progress bar) into the right folder. Honest labels — a diffusion-only or new-arch
+  file is placed correctly but flagged as "needs its siblings + a workflow".
+- **"Installed models" section.** Checkpoints ComfyUI sees that aren't preset
+  catalog engines (anything you downloaded or dropped in) can be **activated** by
+  picking their family (SD 1.5 / SDXL / Flux) — the router then builds the matching
+  workflow. Closes the loop: find on HF → download → activate → generate.
+- **Routing tab** now shows the `image` role as *"handled by the Image Generator
+  tab"* instead of a model dropdown that did nothing (the image model lives in
+  `image.yaml`, not the role→model map).
+
 ### Added (2026-07-05 — ComfyUI as a managed service + first-run setup)
 
 - **`scripts/comfyui-setup.sh`** — idempotent installer that clones ComfyUI (if

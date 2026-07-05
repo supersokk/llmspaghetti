@@ -53,6 +53,31 @@ function bytesToDataUri(bytes) {
   return "data:image/png;base64," + btoa(bin);
 }
 
+// Collect a server-side command's output (used for the HuggingFace API call).
+const run = (cmd) => new Promise((res) => {
+  let out = "";
+  const p = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "message" });
+  p.stream(d => { out += d; });
+  p.then(() => res(out.trim())).catch(() => res(""));
+});
+
+// Sensible render defaults per family, applied when activating a custom checkpoint.
+const FAMILY_DEFAULTS = {
+  sd15: { size: 512,  steps: 20, cfg: 7.0, guidance: 3.5 },
+  sdxl: { size: 1024, steps: 30, cfg: 7.0, guidance: 3.5 },
+  flux: { size: 1024, steps: 20, cfg: 1.0, guidance: 3.5 },
+};
+
+// Infer where a HuggingFace file belongs in ComfyUI, and whether it stands alone.
+function comfyDest(path) {
+  const p = path.toLowerCase();
+  if (/(^|\/)vae\//.test(p))                                 return { folder: "vae",              standalone: false, kind: "VAE" };
+  if (/(^|\/)(text_encoder|clip)\//.test(p))                 return { folder: "clip",             standalone: false, kind: "text encoder" };
+  if (/(^|\/)lora/.test(p))                                  return { folder: "loras",            standalone: false, kind: "LoRA" };
+  if (/(^|\/)(unet|transformer|diffusion_models)\//.test(p)) return { folder: "diffusion_models", standalone: false, kind: "diffusion-only" };
+  return { folder: "checkpoints", standalone: true, kind: "checkpoint" };   // aio/, checkpoints/, or repo root
+}
+
 function serializeConfig(c) {
   return [
     "# LLMSpaghetti — Active image-generation settings",
@@ -84,6 +109,10 @@ export default function ImageGen() {
   const [testing, setTesting]   = useState(false);
   const [testImg, setTestImg]   = useState(null);
   const [testMsg, setTestMsg]   = useState("");
+  const [hfRepo, setHfRepo]     = useState("");           // "Add from HuggingFace" input
+  const [hfFiles, setHfFiles]   = useState(null);         // {repo, files:[...]} | null
+  const [hfLoading, setHfLoading] = useState(false);
+  const [customFamily, setCustomFamily] = useState({});   // {modelFile: family} for Installed section
 
   const loadAll = useCallback(async () => {
     const [cat, conf] = await Promise.all([rget("/api/image-engines"), rget("/api/image-config")]);
@@ -125,34 +154,67 @@ export default function ImageGen() {
     setAlert({ type: "ok", msg: `Activated ${eng.name} — the image role uses it now.` });
   };
 
-  // Download an engine's file(s) into <comfy_dir>/models/<dest> with a progress bar.
-  const download = (eng) => {
+  // Download a file into <comfy_dir>/models/<destRel> with a progress bar. Runs as
+  // the logged-in user (no superuser) so ~/ComfyUI resolves to THEIR home and the
+  // files are owned correctly. Shared by the catalog cards and the HuggingFace box.
+  const downloadFile = (id, destRel, url, sizeLabel, doneMsg) => {
     if (dl) { setAlert({ type: "err", msg: `Already downloading ${dl.id} — let it finish.` }); return; }
     const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
-    setDl({ id: eng.id, pct: null, label: "starting…" });
+    setDl({ id, pct: null, label: "starting…" });
     setAlert(null);
-    // One file per engine in the catalog today; loop kept for multi-file engines.
-    const f = eng.files[0];
     const cmd =
       `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; ` +
-      `out="$d/models/${f.dest}"; mkdir -p "\$(dirname "$out")"; ` +
-      `wget --progress=dot:mega -O "$out" '${f.url}'`;
-    // No superuser: run as the logged-in user so ~/ComfyUI resolves to THEIR home
-    // (ComfyUI lives in user space) and the files are owned correctly.
+      `out="$d/models/${destRel}"; mkdir -p "\$(dirname "$out")"; ` +
+      `wget --progress=dot:mega -O "$out" '${url}'`;
     const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "out" });
     proc.stream(d => {
       const tail = d.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
       const m = tail.match(/(\d+)%/);
-      setDl(prev => ({ id: eng.id, pct: m ? parseInt(m[1], 10) : (prev ? prev.pct : null),
-                       label: `${f.size_gb ? f.size_gb + " GB" : ""}` }));
+      setDl(prev => ({ id, pct: m ? parseInt(m[1], 10) : (prev ? prev.pct : null), label: sizeLabel || "" }));
     });
     const finish = (ok, err) => {
       setDl(null);
-      setAlert(ok ? { type: "ok", msg: `${eng.name} downloaded — click Activate to use it.` }
+      setAlert(ok ? { type: "ok", msg: doneMsg || "Downloaded." }
                   : { type: "err", msg: `Download failed: ${err && err.message || err}` });
       loadAll();
     };
     proc.then(() => finish(true), (e) => finish(false, e));
+  };
+
+  const download = (eng) => {
+    const f = eng.files[0];
+    downloadFile(eng.id, f.dest, f.url, f.size_gb ? `${f.size_gb} GB` : "",
+                 `${eng.name} downloaded — click Activate to use it.`);
+  };
+
+  // Inspect a HuggingFace repo → list its .safetensors with inferred ComfyUI folder.
+  const fetchHF = async () => {
+    if (!hfRepo.trim() || hfLoading) return;
+    const repo = hfRepo.trim()
+      .replace(/^https?:\/\/huggingface\.co\//i, "")
+      .replace(/\/(tree|blob)\/.*$/, "")
+      .replace(/\/+$/, "");
+    setHfLoading(true); setHfFiles(null);
+    const raw = await run(`curl -sf --max-time 25 'https://huggingface.co/api/models/${repo}'`);
+    let files = [];
+    try {
+      const info = JSON.parse(raw || "{}");
+      files = (info.siblings || [])
+        .map(s => s.rfilename || "")
+        .filter(f => /\.safetensors$/i.test(f))
+        .map(path => ({ path, name: path.split("/").pop(), ...comfyDest(path),
+                        url: `https://huggingface.co/${repo}/resolve/main/${path}` }));
+    } catch { files = []; }
+    setHfFiles({ repo, files });
+    setHfLoading(false);
+  };
+
+  // Activate an installed-but-not-in-catalog checkpoint under a chosen family.
+  const activateCustom = (modelFile, family) => {
+    const d = FAMILY_DEFAULTS[family] || FAMILY_DEFAULTS.sd15;
+    saveCfg({ ...cfg, enabled: true, engine: "custom", family, model_file: modelFile,
+              steps: d.steps, size: d.size, cfg: d.cfg, guidance: d.guidance });
+    setAlert({ type: "ok", msg: `Activated ${modelFile} as ${family} — the image role uses it now.` });
   };
 
   // Start the ComfyUI systemd service (installed via `spag comfyui install`).
@@ -199,6 +261,10 @@ export default function ImageGen() {
 
   const engById = (id) => catalog.engines.find(e => e.id === id);
   const activeEng = cfg ? engById(cfg.engine) : null;
+
+  // Checkpoints ComfyUI sees that aren't preset catalog engines (downloaded/custom).
+  const catalogFiles = new Set(catalog.engines.map(e => e.model_file));
+  const customModels = [...installed].filter(m => m && !catalogFiles.has(m));
 
   // ── Render ──────────────────────────────────────────────────────────────────
   const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
@@ -340,6 +406,113 @@ export default function ImageGen() {
           </div>
         );
       })}
+
+      {/* Installed models not in the catalog — pick a family + activate */}
+      {customModels.length > 0 && (
+        <div style={card}>
+          <div style={label}>Installed models (not preset)</div>
+          <div style={{ fontSize: "0.78rem", color: C.dim, marginBottom: "0.8rem" }}>
+            Checkpoints ComfyUI sees that aren't catalog engines — anything you downloaded or dropped
+            into <code>models/checkpoints/</code>. Pick the family so the router builds the right workflow, then activate.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {customModels.map(m => {
+              const fam = customFamily[m] || "sd15";
+              const isActive = cfg && cfg.model_file === m;
+              return (
+                <div key={m} style={{ background: C.bg, border: `1px solid ${isActive ? C.accent : C.border}`,
+                                      borderRadius: 8, padding: "0.55rem 0.8rem", display: "flex",
+                                      alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                  <span style={{ flex: 1, fontFamily: "monospace", fontSize: "0.82rem", color: C.text,
+                                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</span>
+                  {isActive && <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.accent2 }}>● active</span>}
+                  <select value={fam} onChange={e => setCustomFamily(o => ({ ...o, [m]: e.target.value }))}
+                    style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text,
+                             borderRadius: 6, fontSize: "0.78rem", padding: "0.25rem 0.4rem", cursor: "pointer" }}>
+                    <option value="sd15">SD 1.5</option>
+                    <option value="sdxl">SDXL</option>
+                    <option value="flux">Flux</option>
+                  </select>
+                  <button disabled={isActive} onClick={() => activateCustom(m, fam)}
+                    style={{ padding: "0.3rem 0.8rem", fontSize: "0.78rem", fontWeight: 600, border: "none",
+                             borderRadius: 6, cursor: isActive ? "default" : "pointer",
+                             background: isActive ? C.border : C.accent, color: "white", opacity: isActive ? 0.6 : 1 }}>
+                    {isActive ? "in use" : "Activate"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Add from HuggingFace — paste a repo, download any .safetensors to the right folder */}
+      <div style={card}>
+        <div style={label}>Add from HuggingFace 🤗</div>
+        <div style={{ fontSize: "0.78rem", color: C.dim, marginBottom: "0.75rem" }}>
+          Paste a model repo URL. We list its <code>.safetensors</code>, show where each goes and whether
+          it's a ready checkpoint or a component, and download the one you pick.
+        </div>
+        <div style={{ display: "flex", gap: "0.7rem" }}>
+          <input type="text" value={hfRepo} onChange={e => setHfRepo(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && fetchHF()}
+            placeholder="https://huggingface.co/USER/MODEL"
+            style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6,
+                     color: C.text, padding: "0.5rem 0.75rem", fontSize: "0.88rem" }} />
+          <button disabled={!hfRepo.trim() || hfLoading} onClick={fetchHF}
+            style={{ padding: "0.5rem 1.1rem", background: C.accent, color: "white", border: "none",
+                     borderRadius: 6, fontSize: "0.85rem", fontWeight: 600,
+                     cursor: !hfRepo.trim() || hfLoading ? "not-allowed" : "pointer",
+                     opacity: !hfRepo.trim() || hfLoading ? 0.6 : 1 }}>
+            {hfLoading ? "Loading…" : "Fetch"}
+          </button>
+        </div>
+
+        {hfFiles && hfFiles.files.length === 0 && (
+          <div style={{ fontSize: "0.8rem", color: C.dim, marginTop: "0.75rem" }}>
+            No <code>.safetensors</code> found in that repo (it may be diffusers-format only, or a bad URL).
+          </div>
+        )}
+
+        {hfFiles && hfFiles.files.length > 0 && (
+          <div style={{ marginTop: "0.85rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {hfFiles.files.map(f => {
+              const dling = dl && dl.id === f.path;
+              return (
+                <div key={f.path} style={{ background: C.bg, border: `1px solid ${C.border}`,
+                                           borderRadius: 8, padding: "0.55rem 0.8rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                    <span style={{ flex: 1, fontFamily: "monospace", fontSize: "0.8rem", color: C.text,
+                                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.path}</span>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 600, color: f.standalone ? C.green : C.yellow }}>
+                      {f.standalone ? "✅ ready" : `⚠ ${f.kind}`}
+                    </span>
+                    <span style={{ fontSize: "0.72rem", color: C.dim }}>→ models/{f.folder}/</span>
+                    <button disabled={!!dl} onClick={() => downloadFile(
+                        f.path, `${f.folder}/${f.name}`, f.url, "",
+                        f.standalone
+                          ? `${f.name} → models/${f.folder}/. Activate it under “Installed models”.`
+                          : `${f.name} → models/${f.folder}/ (a ${f.kind} component — needs its siblings + a workflow).`)}
+                      style={{ padding: "0.28rem 0.75rem", fontSize: "0.76rem", fontWeight: 600, border: "none",
+                               borderRadius: 6, cursor: dl ? "not-allowed" : "pointer",
+                               background: C.accent, color: "white", opacity: dl ? 0.5 : 1 }}>
+                      ↓ Download
+                    </button>
+                  </div>
+                  {dling && (
+                    <div style={{ marginTop: "0.5rem", height: 7, background: C.surface, borderRadius: 4,
+                                  overflow: "hidden", border: `1px solid ${C.border}` }}>
+                      <div style={{ height: "100%", width: dl.pct != null ? `${dl.pct}%` : "100%",
+                                    background: C.accent, transition: "width 0.3s ease",
+                                    opacity: dl.pct == null ? 0.5 : 1 }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Advanced params for the active engine */}
       {cfg && activeEng && (
