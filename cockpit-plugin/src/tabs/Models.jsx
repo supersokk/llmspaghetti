@@ -421,7 +421,7 @@ export default function Models() {
       await run(`curl -sf -X POST http://localhost:11434/api/generate \\
         -d '{"model":"${name}","keep_alive":0}' > /dev/null 2>&1`);
       await loadRunning();
-      setAlert({ type: "ok", msg: `${name} unloaded from VRAM` });
+      setAlert({ type: "ok", msg: `${name} unloaded from memory (VRAM + RAM)` });
     } finally {
       setBusy(b => { const n = { ...b }; delete n[name]; return n; });
     }

@@ -224,18 +224,20 @@ collect_services() {
     echo "${s:-stopped}"
   }
 
-  # Ollama loaded models
+  # Ollama loaded models — /api/ps is what's actually resident in memory (NOT
+  # /api/tags, which lists every installed model on disk). size_vram tells us how
+  # much of each model is on the GPU vs spilled to system RAM.
   local models_json="[]"
   if command -v ollama &>/dev/null; then
     local raw
-    raw=$(curl -sf http://localhost:11434/api/tags 2>/dev/null || echo '{"models":[]}')
+    raw=$(curl -sf http://localhost:11434/api/ps 2>/dev/null || echo '{"models":[]}')
     models_json=$(echo "$raw" | python3 -c "
 import json,sys
 data=json.load(sys.stdin)
 models=data.get('models',[])
 out=[]
 for m in models:
-    out.append({'name':m.get('name',''),'size':m.get('size',0),'modified':m.get('modified_at','')})
+    out.append({'name':m.get('name',''),'size':m.get('size',0),'size_vram':m.get('size_vram',0)})
 print(json.dumps(out))
 " 2>/dev/null || echo "[]")
   fi

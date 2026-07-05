@@ -807,27 +807,38 @@ export default function Dashboard({ onTabChange }) {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              {loaded_models.map(m => (
-                <div key={m.name} style={{ display: "flex", justifyContent: "space-between",
-                                           alignItems: "center",
-                                           padding: "0.4rem 0.6rem",
-                                           background: `${C.green}0a`,
-                                           border: `1px solid ${C.green}25`,
-                                           borderRadius: "6px" }}>
-                  <div>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 600,
-                                  fontFamily: "monospace", color: C.text }}>{m.name}</div>
-                    <div style={{ fontSize: "0.72rem", color: C.dim }}>
-                      {m.size ? fmt.mb(Math.round(m.size / 1024 / 1024)) : ""}
+              {loaded_models.map(m => {
+                // Where is it really? size_vram vs total size → VRAM / RAM / split.
+                const total = m.size || 0;
+                const vram  = m.size_vram || 0;
+                const loc = !total          ? { t: "loaded",   c: C.green }
+                          : vram >= total * 0.95 ? { t: "in VRAM",  c: C.green }
+                          : vram <= total * 0.05 ? { t: "in RAM",   c: C.yellow }
+                          :                        { t: "VRAM+RAM", c: C.yellow };
+                return (
+                  <div key={m.name} style={{ display: "flex", justifyContent: "space-between",
+                                             alignItems: "center",
+                                             padding: "0.4rem 0.6rem",
+                                             background: `${loc.c}0a`,
+                                             border: `1px solid ${loc.c}25`,
+                                             borderRadius: "6px" }}>
+                    <div>
+                      <div style={{ fontSize: "0.85rem", fontWeight: 600,
+                                    fontFamily: "monospace", color: C.text }}>{m.name}</div>
+                      <div style={{ fontSize: "0.72rem", color: C.dim }}>
+                        {total ? fmt.mb(Math.round(total / 1024 / 1024)) : ""}
+                        {loc.t === "VRAM+RAM" && vram
+                          ? ` · ${fmt.mb(Math.round(vram / 1024 / 1024))} on GPU` : ""}
+                      </div>
                     </div>
+                    <span style={{ fontSize: "0.75rem", color: loc.c,
+                                   background: `${loc.c}18`,
+                                   padding: "0.15rem 0.5rem", borderRadius: "20px" }}>
+                      ● {loc.t}
+                    </span>
                   </div>
-                  <span style={{ fontSize: "0.75rem", color: C.green,
-                                 background: `${C.green}18`,
-                                 padding: "0.15rem 0.5rem", borderRadius: "20px" }}>
-                    ● in VRAM
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
