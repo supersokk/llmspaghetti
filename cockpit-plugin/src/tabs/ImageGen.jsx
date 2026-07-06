@@ -93,17 +93,22 @@ const downloadMgr = {
   start(comfyDir, id, destRel, url, sizeLabel, doneMsg, token) {
     if (this.busy()) return false;
     this._set({ id, pct: null, label: "starting…", phase: "run" });
-    // HuggingFace auth header (only when a token is set) — unlocks gated/private repos.
-    const auth = token ? `--header='Authorization: Bearer ${token}'` : "";
-    // aria2c (16 parallel connections) when available — far faster on multi-GB files
-    // — else fall back to wget. Both take --header and both emit an "NN%" the stream
-    // parser picks up.
+    // For GATED repos, resolve the token'd HF redirect to its signed CDN URL FIRST,
+    // then download that plain URL. This unlocks gated models AND fixes the stalled
+    // progress bar: the signed CDN URL rejects an unexpected Authorization header, so
+    // sending the token straight to aria2c/wget wedged the transfer. HEAD-resolving
+    // avoids that (and a public download just skips this step). aria2c (16 parallel
+    // connections) when available, else wget — both emit an "NN%" the parser reads.
+    const resolve = token
+      ? `R=$(curl -sIL -H 'Authorization: Bearer ${token}' -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null); [ -n "$R" ] && URL="$R"; `
+      : "";
     const cmd =
       `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; ` +
       `out="$d/models/${destRel}"; dir="\$(dirname "$out")"; base="\$(basename "$out")"; mkdir -p "$dir"; ` +
+      `URL='${url}'; ${resolve}` +
       `if command -v aria2c >/dev/null 2>&1; then ` +
-      `aria2c -x16 -s16 -k1M --console-log-level=warn --summary-interval=1 --allow-overwrite=true ${auth} -d "$dir" -o "$base" '${url}'; ` +
-      `else wget --progress=dot:mega ${auth} -O "$out" '${url}'; fi`;
+      `aria2c -x16 -s16 -k1M --console-log-level=warn --summary-interval=1 --allow-overwrite=true -d "$dir" -o "$base" "$URL"; ` +
+      `else wget --progress=dot:mega -O "$out" "$URL"; fi`;
     let out = "";
     const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "out" });
     proc.stream(d => {
@@ -281,6 +286,29 @@ export default function ImageGen() {
     saveCfg({ ...cfg, enabled: true, engine: "custom", family, model_file: modelFile,
               steps: d.steps, size: d.size, cfg: d.cfg, guidance: d.guidance });
     setAlert({ type: "ok", msg: `Activated ${modelFile} as ${family} — the image role uses it now.` });
+  };
+
+  // Delete a checkpoint file from disk (runs as the user, in <comfy_dir>/models/checkpoints).
+  const deleteModel = async (m) => {
+    if (!window.confirm(`Delete "${m}" from disk? This frees the space but can't be undone.`)) return;
+    const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
+    await run(`d="${comfyDir}"; d="\${d/#\\~/$HOME}"; rm -f "$d/models/checkpoints/${m}"`);
+    setAlert({ type: "ok", msg: `Deleted ${m}.` });
+    loadAll();
+  };
+
+  // Rename a downloaded checkpoint to something memorable. If it's the active
+  // engine, update image.yaml so the router still finds it.
+  const renameModel = async (m) => {
+    let nn = window.prompt("Rename checkpoint to (a .safetensors filename):", m);
+    if (!nn || nn.trim() === m) return;
+    nn = nn.trim().replace(/[^A-Za-z0-9._-]/g, "_");     // safe filename
+    if (!/\.safetensors$/i.test(nn)) nn += ".safetensors";
+    const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
+    await run(`d="${comfyDir}"; d="\${d/#\\~/$HOME}"; mv -n "$d/models/checkpoints/${m}" "$d/models/checkpoints/${nn}"`);
+    if (cfg && cfg.model_file === m) await saveCfg({ ...cfg, model_file: nn });
+    setAlert({ type: "ok", msg: `Renamed ${m} → ${nn}.` });
+    loadAll();
   };
 
   const spawnRoot = (cmd) => new Promise((res, rej) => {
@@ -629,12 +657,17 @@ export default function ImageGen() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {customModels.map(m => {
-              const fam = customFamily[m] || "sd15";
               const isActive = cfg && cfg.model_file === m;
+              // Default the dropdown to the SAVED family when this is the active
+              // engine — so the choice visibly persists across reloads.
+              const fam = customFamily[m] || (isActive && cfg.family) || "sd15";
+              const dirty = isActive && fam !== cfg.family;   // changed but not yet saved
+              const iconBtn = { padding: "0.28rem 0.5rem", fontSize: "0.8rem", border: `1px solid ${C.border}`,
+                                borderRadius: 6, background: "transparent", cursor: "pointer", color: C.dim };
               return (
                 <div key={m} style={{ background: C.bg, border: `1px solid ${isActive ? C.accent : C.border}`,
                                       borderRadius: 8, padding: "0.55rem 0.8rem", display: "flex",
-                                      alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                                      alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                   <span style={{ flex: 1, fontFamily: "monospace", fontSize: "0.82rem", color: C.text,
                                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m}</span>
                   {isActive && <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.accent2 }}>● active</span>}
@@ -646,11 +679,15 @@ export default function ImageGen() {
                         : [{ id: "sd15", name: "SD 1.5" }, { id: "sdxl", name: "SDXL" }, { id: "flux", name: "Flux" }]
                      ).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
-                  <button disabled={isActive} onClick={() => activateCustom(m, fam)}
+                  <button title="Rename" onClick={() => renameModel(m)} style={iconBtn}>✎</button>
+                  <button title="Delete from disk" onClick={() => deleteModel(m)}
+                    style={{ ...iconBtn, color: C.red, borderColor: `${C.red}40` }}>🗑</button>
+                  <button disabled={isActive && !dirty} onClick={() => activateCustom(m, fam)}
                     style={{ padding: "0.3rem 0.8rem", fontSize: "0.78rem", fontWeight: 600, border: "none",
-                             borderRadius: 6, cursor: isActive ? "default" : "pointer",
-                             background: isActive ? C.border : C.accent, color: "white", opacity: isActive ? 0.6 : 1 }}>
-                    {isActive ? "in use" : "Activate"}
+                             borderRadius: 6, cursor: (isActive && !dirty) ? "default" : "pointer",
+                             background: (isActive && !dirty) ? C.border : C.accent, color: "white",
+                             opacity: (isActive && !dirty) ? 0.6 : 1 }}>
+                    {isActive ? (dirty ? "Save" : "in use") : "Activate"}
                   </button>
                 </div>
               );

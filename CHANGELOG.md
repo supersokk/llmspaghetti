@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added / Fixed (2026-07-06 — Image model management)
+
+- **Delete + Rename** downloaded checkpoints from the Image tab's *Installed models*
+  section (delete confirms first; rename to a memorable name and, if it's the active
+  engine, `image.yaml` is updated so the router still finds it).
+- **Family choice now persists.** The family dropdown defaults to the *saved* family
+  for the active engine, and you can change it on an already-active model — the button
+  becomes **Save** when the choice differs (previously it was locked to "in use", so a
+  z-image pick appeared not to stick).
+- **Gated-model download progress fixed.** For token'd/gated repos the router now
+  HEAD-resolves the signed CDN URL first and downloads *that* (the CDN rejected the
+  stray `Authorization` header, which stalled the bar). Public downloads unchanged.
+
 ### Changed (2026-07-06 — SpagDesk is the default client; Open WebUI is now optional)
 
 - **Open WebUI removed from the default stack** — it no longer auto-starts, freeing

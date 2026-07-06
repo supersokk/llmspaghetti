@@ -23,6 +23,14 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
   now use **`aria2c -x16 -s16`** (16 parallel connections) with a `wget` fallback;
   same `%`-progress parsing. Big win on multi-GB checkpoints. `aria2` added to
   bootstrap. *(Ollama pulls still use Ollama's own downloader — not swappable.)*
+- ☐ **Flux.2 [klein] architecture pack (4B + 9B)** — Apache-2.0, native in ComfyUI,
+  but a SPLIT/multi-file arch: transformer (BFL `FLUX.2-klein-4B`/`-9B`) + a separate
+  text encoder + VAE (`Comfy-Org/…-for-flux-klein-4b`), loaded via UNETLoader +
+  CLIPLoader + VAELoader with a Flux.2-specific sampler. Needs **24GB+** (won't run on
+  8GB to verify). To ship properly: (1) extend the pack/engine schema to download
+  **companion files** into `unet/`, `clip/`, `vae/` (not just one checkpoint); (2) a
+  verified `flux2.json` workflow template from the official ComfyUI Flux.2 example.
+  Deferred until we can verify it on capable hardware. (Noted 2026-07-06.)
 - ✅ **HuggingFace login (gated/private models)** — `HF_TOKEN` field in Cockpit
   Settings (→ `api_keys.env`); Image-tab downloads send
   `--header 'Authorization: Bearer $HF_TOKEN'` **only when set** (harmless for public
