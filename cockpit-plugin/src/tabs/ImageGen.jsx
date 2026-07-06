@@ -554,13 +554,20 @@ export default function ImageGen() {
                       <span style={{ flex: 1 }} />
                       {isActive && <span style={{ fontSize: "0.72rem", fontWeight: 700, color: C.accent2 }}>● active</span>}
                       {isInstalled ? (
-                        <button disabled={isActive} onClick={() => activate(eng)}
-                          style={{ padding: "0.32rem 0.85rem", fontSize: "0.78rem", fontWeight: 600,
-                                   border: "none", borderRadius: 6, cursor: isActive ? "default" : "pointer",
-                                   background: isActive ? C.border : C.accent, color: "white",
-                                   opacity: isActive ? 0.6 : 1 }}>
-                          {isActive ? "in use" : "Activate"}
-                        </button>
+                        <>
+                          <button title="Delete from disk (frees the space)"
+                            onClick={() => deleteModel(eng.model_file)}
+                            style={{ padding: "0.28rem 0.5rem", fontSize: "0.8rem",
+                                     border: `1px solid ${C.red}40`, borderRadius: 6,
+                                     background: "transparent", cursor: "pointer", color: C.red }}>🗑</button>
+                          <button disabled={isActive} onClick={() => activate(eng)}
+                            style={{ padding: "0.32rem 0.85rem", fontSize: "0.78rem", fontWeight: 600,
+                                     border: "none", borderRadius: 6, cursor: isActive ? "default" : "pointer",
+                                     background: isActive ? C.border : C.accent, color: "white",
+                                     opacity: isActive ? 0.6 : 1 }}>
+                            {isActive ? "in use" : "Activate"}
+                          </button>
+                        </>
                       ) : (
                         <button disabled={downloading} onClick={() => download(eng)}
                           style={{ padding: "0.32rem 0.85rem", fontSize: "0.78rem", fontWeight: 600,
