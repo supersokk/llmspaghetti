@@ -30,6 +30,20 @@ const MCP_JSON_PATH   = "/opt/llmspaghetti/config/mcp.json";
 // ── Docker service definitions ────────────────────────────────────────────────
 
 const SERVICES = [
+  // Chat clients
+  {
+    id:          "openwebui",
+    name:        "Open WebUI",
+    icon:        "💬",
+    desc:        "Full-featured chat UI (the original bootstrap client). Optional now — SpagDesk is the default at /. Install this if you want OWUI's extras. Runs on :3000; reuses its old data at /opt/llmspaghetti/data/webui.",
+    port:        3000,
+    container:   "llmspaghetti-webui",
+    category:    "Chat clients",
+    // Standalone run: reaches the router via host.docker.internal:5000 (it's no
+    // longer on the compose network). Same data dir as before, so accounts/chats
+    // persist across install/uninstall.
+    install_cmd: "docker run -d --name llmspaghetti-webui --restart unless-stopped -p 127.0.0.1:3000:8080 --add-host host.docker.internal:host-gateway -v /opt/llmspaghetti/data/webui:/app/backend/data -e ENABLE_OLLAMA_API=false -e OPENAI_API_BASE_URL=http://host.docker.internal:5000/v1 -e OPENAI_API_KEY=sk-llmspaghetti -e WEBUI_NAME=LLMSpaghetti -e ENABLE_SIGNUP=true -e DEFAULT_USER_ROLE=admin ghcr.io/open-webui/open-webui:main",
+  },
   // Runtimes
   {
     id:          "llamacpp",
@@ -133,7 +147,7 @@ const SERVICES = [
   },
 ];
 
-const DOCKER_CATEGORIES = ["Runtimes", "Image Generation", "Data & Search", "Automation"];
+const DOCKER_CATEGORIES = ["Chat clients", "Runtimes", "Image Generation", "Data & Search", "Automation"];
 
 // ── MCP server definitions ─────────────────────────────────────────────────────
 

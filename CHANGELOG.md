@@ -8,6 +8,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (2026-07-06 — SpagDesk is the default client; Open WebUI is now optional)
+
+- **Open WebUI removed from the default stack** — it no longer auto-starts, freeing
+  its RAM (~0.5–1 GB). "WebUI's work is done": it was the bootstrap client, and
+  SpagDesk has replaced it. Install OWUI on demand from **Cockpit → Services → Chat
+  clients** (runs on :3000, reaches the router via `host.docker.internal:5000`,
+  reuses its old data dir so accounts/chats persist).
+- **SpagDesk is served at the root `/`** by Caddy — the bare server IP now lands on
+  the native workspace (still also at `/desk/`).
+- **firstboot** now gates "ready" on the **router** answering (SpagDesk is static, so
+  it's ready instantly) instead of waiting for Open WebUI to boot — faster first boot.
+  It also deploys the **full** `stack/Caddyfile` (fixes a latent bug where firstboot
+  wrote a minimal Caddyfile that dropped the `/spag`, `/desk`, `/v1`, `/images` routes).
+- **Dashboard** shows a **🍝 Workspace → &lt;ip&gt;** link (opens SpagDesk) and lists the
+  **Router** as a core service; the Open WebUI dot only appears when it's installed.
+
 ### Added (2026-07-06 — Faster downloads + HuggingFace login)
 
 - **Image-tab downloads now use `aria2c -x16 -s16`** (16 parallel connections, huge

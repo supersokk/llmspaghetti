@@ -246,25 +246,27 @@ def start_stack():
     """Pull images and start the stack in the background.
 
     Firstboot runs on port 3001 so it stays alive (serving the done page
-    with live status polling) while Docker images download. Once Open WebUI
-    is healthy on port 3000, we switch the Caddyfile and stop firstboot.
+    with live status polling) while Docker images download. Once the router
+    is answering on port 5000, we switch to the full Caddyfile and stop firstboot.
     """
     compose = f"docker compose -f {INSTALL_DIR}/docker-compose.yml"
     log = open(INSTALL_DIR / "logs" / "stack-startup.log", "w")
+    # Deploy the FULL stack Caddyfile (SpagDesk at /, plus /spag, /v1, /images,
+    # /desk, /terminal) — the single source of truth, copied to $INSTALL_DIR by
+    # bootstrap. (Previously firstboot inlined a minimal Caddyfile that dropped the
+    # SpagDesk routes and pointed / at Open WebUI.)
     switch_caddyfile = (
-        "printf ':80 {\\n"
-        "    handle /api/* { uri strip_prefix /api; reverse_proxy localhost:4000 }\\n"
-        "    handle { reverse_proxy localhost:3000 }\\n"
-        "    encode gzip\\n"
-        "}\\n' > /etc/caddy/Caddyfile"
+        f"cp {INSTALL_DIR}/Caddyfile /etc/caddy/Caddyfile"
         " && systemctl reload caddy"
         " && systemctl stop llmspaghetti-firstboot.service"
     )
+    # Readiness = the ROUTER answers (SpagDesk is static — ready the moment Caddy
+    # serves it; the router is what chat needs). No Open WebUI to wait for.
     subprocess.Popen(
         f"{compose} pull"
         f" && {compose} up -d"
         f" && systemctl enable llmspaghetti"
-        f" && until curl -sf http://localhost:3000 > /dev/null 2>&1; do sleep 5; done"
+        f" && until curl -sf http://localhost:5000/api/routing-mode > /dev/null 2>&1; do sleep 5; done"
         f" && {switch_caddyfile}",
         shell=True, stdout=log, stderr=log,
     )
@@ -439,29 +441,30 @@ async def api_status():
     def container(name):
         return run(f"docker inspect -f '{{{{.State.Status}}}}' {name} 2>/dev/null").stdout.strip() or "absent"
 
-    webui   = container("llmspaghetti-webui")
+    router  = container("llmspaghetti-router")
     litellm = container("llmspaghetti-litellm")
-    # Is Open WebUI actually serving yet? (container "running" != HTTP ready)
-    http = run("curl -sf -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:3000").stdout.strip()
-    webui_ready = http == "200"
+    # Is the router actually answering yet? (container "running" != HTTP ready).
+    # SpagDesk (the client) is static, so once the router responds, chat works.
+    http = run("curl -sf -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:5000/api/routing-mode").stdout.strip()
+    router_ready = http == "200"
 
-    if webui_ready:
-        stage, stage_msg = "ready", "Open WebUI is up — you can start chatting."
-    elif webui == "running":
-        stage, stage_msg = "starting", "Services started — waiting for Open WebUI to finish booting…"
-    elif webui in ("created", "restarting"):
+    if router_ready:
+        stage, stage_msg = "ready", "LLMSpaghetti is up — open SpagDesk and start chatting."
+    elif router == "running":
+        stage, stage_msg = "starting", "Services started — waiting for the router to finish booting…"
+    elif router in ("created", "restarting"):
         stage, stage_msg = "starting", "Starting containers…"
     else:
-        stage, stage_msg = "preparing", "Downloading container images (~2 GB, one-time)…"
+        stage, stage_msg = "preparing", "Downloading container images (one-time)…"
 
     return JSONResponse({
         "timestamp": datetime.utcnow().isoformat(),
         "stage": stage,
         "stage_msg": stage_msg,
-        "webui_ready": webui_ready,
+        "router_ready": router_ready,
         "services": {
             "ollama":   svc("ollama"),
-            "webui":    webui,
+            "router":   router,
             "litellm":  litellm,
             "cockpit":  svc("cockpit.socket"),   # socket-activated; .service is idle until connect
         },

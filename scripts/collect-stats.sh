@@ -247,6 +247,7 @@ print(json.dumps(out))
 
   echo "\"services\": {
     \"ollama\":   \"$(svc_status ollama)\",
+    \"router\":   \"$(container_status llmspaghetti-router)\",
     \"webui\":    \"$(container_status llmspaghetti-webui)\",
     \"litellm\":  \"$(container_status llmspaghetti-litellm)\",
     \"cockpit\":  \"$(svc_status cockpit)\",

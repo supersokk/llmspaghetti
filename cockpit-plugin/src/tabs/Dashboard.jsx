@@ -616,6 +616,15 @@ export default function Dashboard({ onTabChange }) {
           {system?.uptime && `up ${system.uptime}`}
           {lastUpdate && ` · updated ${lastUpdate.toLocaleTimeString()}`}
         </div>
+        {network?.ip && (
+          <a href={`http://${network.ip}/`} target="_blank" rel="noreferrer"
+            title="Open SpagDesk — your chat / workspace"
+            style={{ fontSize: "0.8rem", fontWeight: 700, color: C.accent2, textDecoration: "none",
+                     background: `${C.accent}14`, border: `1px solid ${C.accent}40`,
+                     borderRadius: 20, padding: "0.28rem 0.8rem", whiteSpace: "nowrap" }}>
+            🍝 Workspace → {network.ip}
+          </a>
+        )}
         <PowerMenu onAction={(id) => {
           if (id === "stop-models" || id === "stop-services") refresh();
         }} />
@@ -796,14 +805,17 @@ export default function Dashboard({ onTabChange }) {
                         marginBottom: "0.75rem" }}>Services</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
             {[
-              ["Ollama",     services?.ollama],
-              ["Open WebUI", services?.webui],
-              ["LiteLLM",    services?.litellm],
-              ["Caddy",      services?.caddy],
-              ["Cockpit",    services?.cockpit],
-              ["Terminal",   services?.terminal],
+              ["Ollama",   services?.ollama],
+              ["Router",   services?.router],
+              ["LiteLLM",  services?.litellm],
+              ["Caddy",    services?.caddy],
+              ["Cockpit",  services?.cockpit],
+              ["Terminal", services?.terminal],
               ...(services?.comfyui && services.comfyui !== "stopped"
                 ? [["ComfyUI", services.comfyui]] : []),
+              // Open WebUI is optional now — only show it when it's actually installed.
+              ...(services?.webui && !["stopped", "not-found", "absent"].includes(services.webui)
+                ? [["Open WebUI", services.webui]] : []),
             ].map(([label, state]) => (
               <ServiceDot key={label} state={state || "inactive"} label={label} />
             ))}

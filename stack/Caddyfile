@@ -67,15 +67,15 @@
         }
     }
 
-    # ── Open WebUI ──────────────────────────────────────────────────────────
-    # Catch-all — serves the main chat interface
+    # ── SpagDesk (default client — served at root) ──────────────────────────
+    # SpagDesk is the primary workspace, so the bare IP lands here. Its router
+    # calls use absolute /spag/* + /images/* (above), so serving it at / behaves
+    # exactly like /desk/. Open WebUI is optional now — install it from the
+    # Cockpit Services tab (it then runs on :3000).
     handle /* {
-        reverse_proxy localhost:3000 {
-            header_up Host {host}
-            # WebSocket for real-time chat streaming
-            header_up Upgrade {http.request.header.Upgrade}
-            header_up Connection {http.request.header.Connection}
-        }
+        root * /opt/llmspaghetti/spagdesk
+        try_files {path} /index.html
+        file_server
     }
 
     # ── Logging ─────────────────────────────────────────────────────────────

@@ -95,7 +95,7 @@
 
     // ── Ready → enable button + auto-redirect ─────────────────────────────
     const btn = document.getElementById('enter-btn');
-    if (data.webui_ready) {
+    if (data.router_ready) {
       btn.style.opacity = '1';
       btn.style.pointerEvents = 'auto';
       btn.textContent = 'Open LLMSpaghetti →';
