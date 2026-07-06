@@ -17,6 +17,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   count. The router was already async (FastAPI) — this stops the UI from blocking.
   (A step toward, but not the whole of, the local-background-delegation vision in
   docs/PLANNED-background-jobs.md.)
+- **Image turns stay out of the text conversation history** — an explicit `//image`
+  is sent standalone (ComfyUI ignores history anyway), and any image-classified turn
+  is dropped from `messages`, so later chat isn't confused by the `//image` text or
+  the picture (previously the model would riff on "// is a comment" / the image subject).
 
 ### Added (2026-07-06 — `//image` slash command to force a role)
 
