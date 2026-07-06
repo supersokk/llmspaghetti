@@ -161,6 +161,26 @@ def _is_utility_request(payload: dict, headers, last_msg: str) -> bool:
     return False
 
 
+# ── Explicit slash-command role force ────────────────────────────────────────
+# "//image fish with chopsticks" (or "/image …") forces a role and skips the
+# classifier entirely — direct user intent, top priority. The "//role " prefix is
+# stripped so the model / ComfyUI sees only the real prompt. Any valid role works
+# (//code, //reasoning, …), but //image is the headline use.
+_SLASH_RE = re.compile(r"^\s*/{1,2}([a-zA-Z]+)[ \t]+(.+)$", re.DOTALL)
+
+
+def _slash_command(msg: str):
+    """('image', 'fish…') if msg begins with //<role> <prompt>, else (None, msg)."""
+    if not msg:
+        return None, msg
+    m = _SLASH_RE.match(msg)
+    if m:
+        role = m.group(1).lower()
+        if role in VALID_ROLES and role != "none":
+            return role, m.group(2).strip()
+    return None, msg
+
+
 def _utility_model() -> str:
     """Cheap model for housekeeping: explicit `utility` role wins, else reuse the
     `fast` model, else the local default."""
@@ -1477,6 +1497,18 @@ async def proxy(request: Request, path: str):
                 is_utility     = _is_utility_request(payload, request.headers, last_msg)
                 override_role  = None if is_utility else _lookup_override(last_msg)
 
+                # Explicit slash command — "//image fish with chopsticks" forces the
+                # role and skips the classifier (direct user intent, top priority).
+                forced_role, _clean = (None, last_msg) if is_utility else _slash_command(last_msg)
+                if forced_role:
+                    last_msg = _clean
+                    # Rewrite the last user message so the model / ComfyUI sees the
+                    # clean prompt (prefix stripped), not the "//image …" text.
+                    for _um in reversed(messages):
+                        if _um.get("role") == "user" and isinstance(_um.get("content"), str):
+                            _um["content"] = _clean
+                            break
+
                 # ── Routing mode ─────────────────────────────────────────────
                 if is_utility:
                     # Client housekeeping (title / tag / follow-up generation,
@@ -1487,6 +1519,11 @@ async def proxy(request: Request, path: str):
                     fallback = None
                     tier, role_name = "utility", "utility"
                     log.info(f"{'utility':<8} → {primary:<14} (housekeeping — classification skipped)")
+                elif forced_role:
+                    # User typed //<role> — honour it verbatim, above learned overrides.
+                    primary, fallback = _model_for_role(forced_role)
+                    tier, role_name   = "command", forced_role
+                    log.info(f"{'command':<8} → {role_name:<10} (//{forced_role})  {last_msg[:60]!r}")
                 elif override_role:
                     # A human corrected this exact message before — ground truth,
                     # beats the keyword guess (Flywheel Phase 1).

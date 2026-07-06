@@ -293,7 +293,7 @@ export default function ImageGen() {
     if (!window.confirm(`Delete "${m}" from disk? This frees the space but can't be undone.`)) return;
     const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
     await run(`d="${comfyDir}"; d="\${d/#\\~/$HOME}"; rm -f "$d/models/checkpoints/${m}"`);
-    setAlert({ type: "ok", msg: `Deleted ${m}.` });
+    setAlert({ type: "ok", msg: `Deleted ${m}. If the disk space doesn't free up, run "spag comfyui restart" (ComfyUI may still hold the file open).` });
     loadAll();
   };
 

@@ -8,6 +8,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-06 — `//image` slash command to force a role)
+
+- **Type `//image <prompt>` to force image generation**, skipping the classifier —
+  e.g. `//image fish with chopsticks`. The `//role` prefix is stripped so ComfyUI
+  gets a clean prompt. Works for any role (`//code`, `//reasoning`, …) and takes top
+  priority (above learned corrections). Single or double slash; URLs/paths are
+  safely ignored (must be a real role name + a space + prompt). Router-side, so it
+  works in SpagDesk and Open WebUI alike. SpagDesk's input hints at it.
+
 ### Added / Fixed (2026-07-06 — Image model management)
 
 - **Delete + Rename** downloaded checkpoints from the Image tab's *Installed models*
