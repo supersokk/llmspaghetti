@@ -38,7 +38,8 @@ class Context:
     has_file_attachment: bool = False
     has_image:           bool = False
     has_code_blocks:     bool = False
-    token_count:         int  = 0
+    token_count:         int  = 0                # whole conversation (for budget/logging)
+    last_user_tokens:    int  = 0               # just the current user turn (for intent)
     thread_role:         Optional[str] = None   # role of previous message
 
 
@@ -64,8 +65,10 @@ _SIGNAL_RULES: list[tuple[str, Callable[[Context], bool]]] = [
     ("code",     lambda ctx: ctx.has_code_blocks),
     # Image in context → image (user probably asking about it)
     ("image",    lambda ctx: ctx.has_image),
-    # Very long message without file → reasoning (complex question)
-    ("reasoning",lambda ctx: ctx.token_count > 2000 and not ctx.has_file_attachment),
+    # Very long CURRENT message without a file → reasoning (a complex question).
+    # Uses last_user_tokens, NOT token_count — otherwise a long *conversation* would
+    # trip this and hijack an explicit "draw me a …" / code request after a while.
+    ("reasoning",lambda ctx: ctx.last_user_tokens > 2000 and not ctx.has_file_attachment),
 ]
 
 

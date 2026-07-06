@@ -789,6 +789,7 @@ def _extract(messages: list) -> tuple[str, Context]:
         has_image=has_image,
         has_code_blocks=last_user_code,
         token_count=tokens,
+        last_user_tokens=len(last_user) // 4,   # current turn only — for intent signals
     )
 
 
