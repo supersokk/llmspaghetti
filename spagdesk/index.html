@@ -227,23 +227,36 @@ function addCorrectionRow(wrap, userContent, info){
   wrap.appendChild(meta);
 }
 
+// Requests run CONCURRENTLY — a slow image doesn't block the chat. Fire
+// "//image clown", then ask "capital of Norway" and get it from fast/general
+// while the clown renders (the router is async; this just stops the UI from
+// serialising). inFlight tracks how many are in the air for the status line.
+let inFlight = 0;
+function setStatus(){
+  $status.textContent = inFlight > 1 ? `${inFlight} in flight…`
+                      : inFlight === 1 ? "working…" : "ready";
+}
+
 async function send(){
   const text = $input.value.trim();
-  if(!text || $send.disabled) return;
-  $input.value = ""; autogrow();
+  if(!text) return;
+  $input.value = ""; autogrow(); $input.focus();
   messages.push({ role:"user", content:text });
   addMessage("user").bubble.textContent = text;
 
   const { wrap, bubble } = addMessage("assistant");
   bubble.textContent = "…";
-  $send.disabled = true; $status.textContent = "routing…";
+  inFlight++; setStatus();
+
+  // Snapshot the history for THIS request so a concurrent send can't mutate it.
+  const reqMessages = messages.slice();
 
   let full = "", info = null, raw = "", errMsg = null;
   try{
     const res = await fetch(CHAT, {
       method:"POST",
       headers:{ "Content-Type":"application/json", "Authorization":"Bearer sk-llmspaghetti" },
-      body: JSON.stringify({ model:"local-default", stream:true, messages })
+      body: JSON.stringify({ model:"local-default", stream:true, messages: reqMessages })
     });
     if(!res.body) throw new Error("no response body from router");
     const reader = res.body.getReader();
@@ -278,7 +291,6 @@ async function send(){
       messages.push({ role:"assistant", content: clean });
       renderInsight(info);
       addCorrectionRow(wrap, text, info);
-      $status.textContent = "ready";
     }else{
       // No chat content — surface whatever came back (usually a router/LiteLLM error).
       if(!errMsg){
@@ -286,13 +298,11 @@ async function send(){
         catch{ errMsg = raw.trim() || "empty response from router"; }
       }
       bubble.textContent = "⚠ " + String(errMsg).slice(0, 400);
-      $status.textContent = "error";
     }
   }catch(e){
     bubble.textContent = "⚠ " + (e.message || "request failed");
-    $status.textContent = "error";
   }finally{
-    $send.disabled = false; $input.focus();
+    inFlight--; setStatus();
   }
 }
 

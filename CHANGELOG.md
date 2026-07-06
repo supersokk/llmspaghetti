@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-06 — SpagDesk: concurrent (non-blocking) chat)
+
+- **SpagDesk no longer serialises requests.** A slow image (`//image clown`, ~20s)
+  runs in the background — fire it, then ask "capital of Norway" and get the answer
+  from fast/general *while the clown renders*. Each message streams into its own
+  bubble; the send button is never disabled; the status line shows an in-flight
+  count. The router was already async (FastAPI) — this stops the UI from blocking.
+  (A step toward, but not the whole of, the local-background-delegation vision in
+  docs/PLANNED-background-jobs.md.)
+
 ### Added (2026-07-06 — `//image` slash command to force a role)
 
 - **Type `//image <prompt>` to force image generation**, skipping the classifier —
