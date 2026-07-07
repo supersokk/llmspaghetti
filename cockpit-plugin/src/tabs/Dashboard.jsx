@@ -559,9 +559,27 @@ export default function Dashboard({ onTabChange }) {
   const [history, setHistory]   = useState({ cpu: [], ram: [], netRx: [], netTx: [] });
   const [loading, setLoading]   = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [gpuStack, setGpuStack] = useState(null);
+  const [vulkanDismissed, setVulkanDismissed] = useState(
+    () => { try { return localStorage.getItem("spag-vulkan-notice") === "1"; } catch { return false; } }
+  );
   const intervalRef = useRef(null);
 
   const STATS_SCRIPT = "/opt/llmspaghetti/scripts/collect-stats.sh";
+
+  // One-time read of the detected GPU stack (written at install by gpu-detect).
+  // Drives the AMD-Vulkan info notice below.
+  useEffect(() => {
+    run("cat /opt/llmspaghetti/gpu-info.json 2>/dev/null").then(raw => {
+      if (!raw) return;
+      try { setGpuStack(JSON.parse(raw).driver_stack || null); } catch { /* ignore */ }
+    });
+  }, []);
+
+  const dismissVulkan = () => {
+    try { localStorage.setItem("spag-vulkan-notice", "1"); } catch { /* ignore */ }
+    setVulkanDismissed(true);
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -635,6 +653,28 @@ export default function Dashboard({ onTabChange }) {
           if (id === "stop-models" || id === "stop-services") refresh();
         }} />
       </div>
+
+      {/* ── AMD Vulkan info notice (one-time, dismissible) ── */}
+      {gpuStack === "vulkan" && !vulkanDismissed && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem",
+                      background: `${C.accent}12`, border: `1px solid ${C.accent}40`,
+                      borderRadius: 10, padding: "0.85rem 1rem", marginBottom: "1rem" }}>
+          <span style={{ fontSize: "1.2rem", lineHeight: 1 }}>🔴</span>
+          <div style={{ flex: 1, fontSize: "0.82rem", lineHeight: 1.55, color: C.text }}>
+            <strong>AMD GPU detected — running on Vulkan.</strong>{" "}
+            Ollama uses your GPU automatically, so you're good to go. If your card
+            supports <strong>ROCm</strong> (RDNA2/3 or newer), you can install it from{" "}
+            <button onClick={() => onTabChange && onTabChange("services")}
+              style={{ background: "none", border: "none", color: C.accent2, padding: 0,
+                       font: "inherit", fontWeight: 700, cursor: "pointer",
+                       textDecoration: "underline" }}>Services</button>{" "}
+            for extra speed. Not sure? Vulkan works fine — no action needed.
+          </div>
+          <button onClick={dismissVulkan} title="Dismiss"
+            style={{ background: "none", border: "none", color: C.dim, cursor: "pointer",
+                     fontSize: "1.1rem", lineHeight: 1, padding: "0 0.2rem" }}>×</button>
+        </div>
+      )}
 
       {/* ── Summary tiles ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)",

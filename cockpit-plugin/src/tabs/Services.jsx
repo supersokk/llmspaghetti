@@ -66,6 +66,23 @@ const SERVICES = [
     install_cmd: "docker run -d --gpus all --name llmspaghetti-vllm -p 8000:8000 -v /opt/llmspaghetti/models:/root/.cache/huggingface vllm/vllm-openai:latest --host 0.0.0.0 --model meta-llama/Llama-3.2-1B-Instruct",
     requires_gpu: true,
   },
+  {
+    id:          "rocm",
+    name:        "AMD ROCm",
+    icon:        "🔴",
+    // A driver package, not a service: install once, reboot, done. AMD cards run
+    // on Vulkan by default (no install needed) — ROCm is an opt-in upgrade that's
+    // faster on supported cards (RDNA2/3, CDNA). Unsupported cards should stay on
+    // Vulkan; installing ROCm on them just wastes disk.
+    desc:        "Optional AMD acceleration. Your card already runs on Vulkan out of the box — install ROCm only if it's supported (RDNA2/3 or newer) for extra speed. Reboot required.",
+    type:        "package",
+    category:    "Runtimes",
+    // Idempotent: install-gpu-drivers.sh skips if rocm-hip-sdk is already present.
+    check_cmd:   "dpkg -l 2>/dev/null | grep -c 'rocm-hip-sdk' || echo 0",
+    install_cmd: "bash /opt/llmspaghetti/scripts/install-gpu-drivers.sh rocm 2>&1 | tail -15",
+    requires_gpu: true,
+    reboot:      true,
+  },
   // Image Generation
   {
     id:          "comfyui",
@@ -214,15 +231,20 @@ const MCP_SERVERS = [
 // ── Docker service card ───────────────────────────────────────────────────────
 
 function ServiceCard({ svc, status, onAction, busy, serverIp }) {
+  const isPackage      = svc.type === "package";
   const isRunning      = status === "running";
-  const isInstalled    = status === "running" || status === "stopped" || status === "exited";
+  const isInstalled    = isPackage
+                       ? status === "installed"
+                       : status === "running" || status === "stopped" || status === "exited";
   const isNotInstalled = !isInstalled && status !== "loading";
 
-  const statusColour = isRunning   ? C.green
-                     : isInstalled ? C.yellow
+  const statusColour = isRunning              ? C.green
+                     : isPackage && isInstalled ? C.green
+                     : isInstalled            ? C.yellow
                      : C.dim;
 
   const statusLabel = status === "loading"   ? "…"
+                    : status === "installed" ? "Installed"
                     : status === "running"   ? "Running"
                     : status === "stopped"
                    || status === "exited"    ? "Stopped"
@@ -269,7 +291,15 @@ function ServiceCard({ svc, status, onAction, busy, serverIp }) {
             {busy ? "Installing…" : "↓ Install"}
           </button>
         )}
-        {isInstalled && !isRunning && (
+        {isPackage && isInstalled && (
+          <span style={{ flex: 1, padding: "0.4rem 0.75rem", background: `${C.green}18`,
+                         color: C.green, border: `1px solid ${C.green}40`,
+                         borderRadius: "6px", fontSize: "0.82rem", fontWeight: 600,
+                         textAlign: "center" }}>
+            ✓ Installed
+          </span>
+        )}
+        {!isPackage && isInstalled && !isRunning && (
           <button onClick={() => onAction(svc, "start")} disabled={busy}
             style={{ padding: "0.4rem 0.75rem", background: `${C.green}18`,
                      color: C.green, border: `1px solid ${C.green}40`,
@@ -297,7 +327,7 @@ function ServiceCard({ svc, status, onAction, busy, serverIp }) {
             </a>
           </>
         )}
-        {isInstalled && (
+        {!isPackage && isInstalled && (
           <button onClick={() => onAction(svc, "remove")} disabled={busy}
             style={{ padding: "0.4rem 0.75rem", background: "transparent",
                      color: C.dim, border: `1px solid ${C.border}30`,
@@ -308,9 +338,17 @@ function ServiceCard({ svc, status, onAction, busy, serverIp }) {
         )}
       </div>
 
-      <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", color: C.dim }}>
-        Port {svc.port} · {openUrl}
-      </div>
+      {isPackage
+        ? (svc.reboot && (
+            <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", color: C.dim }}>
+              {isInstalled ? "Reboot to activate" : "Reboot required after install"}
+            </div>
+          ))
+        : (
+          <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", color: C.dim }}>
+            Port {svc.port} · {openUrl}
+          </div>
+        )}
     </div>
   );
 }
@@ -400,6 +438,11 @@ export default function Services() {
   const refresh = useCallback(async () => {
     const checks = await Promise.all(
       SERVICES.map(async svc => {
+        if (svc.type === "package") {
+          // Driver/package (e.g. ROCm): installed → "installed", else "not-found".
+          const n = await run(svc.check_cmd);
+          return [svc.id, parseInt(n, 10) > 0 ? "installed" : "not-found"];
+        }
         if (svc.native) {
           // Host systemd service (e.g. ComfyUI): active → running, unit present but
           // stopped → exited (installed), no unit → not-found (not installed).
@@ -458,7 +501,12 @@ export default function Services() {
     appendLog(`${action} ${svc.name}…`);
     try {
       let cmd;
-      if (svc.native) {
+      if (svc.type === "package") {
+        // Driver packages only support install (one-shot). No start/stop/remove —
+        // uninstalling GPU drivers is risky and rarely wanted.
+        if (action !== "install") return;
+        cmd = svc.install_cmd;
+      } else if (svc.native) {
         // Host systemd service — install runs our setup script; the rest are systemctl.
         // Removing keeps the ComfyUI files (GBs), just tears down the service.
         switch (action) {

@@ -52,7 +52,10 @@ _gpu_detect_main() {
     # Count only display controllers — plain "amd" grep matches chipset/USB/etc. on Ryzen
     AMD_COUNT=$(lspci | grep -iE "vga|3d|display" | grep -ci "amd\|radeon")
     AMD_MODELS=$(lspci | grep -i "amd\|radeon" | grep -i "vga\|3d\|display" | sed 's/.*: //' | tr '\n' '|' | sed 's/|$//')
-    [[ "$DRIVER_STACK" == "none" ]] && DRIVER_STACK="rocm-pending"
+    # AMD GPU present but no ROCm → default to VULKAN (Mesa RADV): works on nearly
+    # every AMD GPU, and Ollama uses Vulkan automatically. ROCm is an opt-in upgrade
+    # (Services tab) for the cards it supports.
+    [[ "$DRIVER_STACK" == "none" ]] && DRIVER_STACK="vulkan"
   fi
 
   # ── Fallback: parse lspci even if no drivers yet ──────────────────────────
@@ -61,7 +64,7 @@ _gpu_detect_main() {
       DRIVER_STACK="cuda-pending"
       NVIDIA_COUNT=$(lspci | grep -ci "nvidia")
     elif lspci | grep -qi "amd\|radeon"; then
-      DRIVER_STACK="rocm-pending"
+      DRIVER_STACK="vulkan"   # broad-compat AMD default (Mesa RADV); ROCm is opt-in
       AMD_COUNT=$(lspci | grep -ci "amd\|radeon")
     fi
   fi
@@ -69,9 +72,10 @@ _gpu_detect_main() {
   # ── Recommend ollama runtime flag ─────────────────────────────────────────
   local OLLAMA_RUNTIME="cpu"
   case "$DRIVER_STACK" in
-    cuda+rocm)   OLLAMA_RUNTIME="cuda" ;;  # prefer CUDA when both present
+    cuda+rocm)   OLLAMA_RUNTIME="cuda" ;;   # prefer CUDA when both present
     cuda*)       OLLAMA_RUNTIME="cuda" ;;
-    rocm*)       OLLAMA_RUNTIME="rocm" ;;
+    rocm*)       OLLAMA_RUNTIME="rocm" ;;     # ROCm installed → use it (faster on supported cards)
+    vulkan)      OLLAMA_RUNTIME="vulkan" ;;   # broad-compat AMD; Ollama uses Vulkan by default
   esac
 
   # ── Recommended model tier based on VRAM ─────────────────────────────────
@@ -136,7 +140,11 @@ EOF
         echo "NVIDIA GPUs    : $NVIDIA_COUNT × $NVIDIA_MODELS (CUDA $CUDA_VERSION)"
       fi
       if [[ $AMD_COUNT -gt 0 ]]; then
-        echo "AMD GPUs       : $AMD_COUNT × $AMD_MODELS (ROCm $ROCM_VERSION)"
+        if [[ "$DRIVER_STACK" == "vulkan" ]]; then
+          echo "AMD GPUs       : $AMD_COUNT × $AMD_MODELS (Vulkan / Mesa RADV — ROCm optional)"
+        else
+          echo "AMD GPUs       : $AMD_COUNT × $AMD_MODELS (ROCm $ROCM_VERSION)"
+        fi
       fi
       echo "───────────────────────────────────"
       ;;
