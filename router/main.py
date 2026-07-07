@@ -25,6 +25,7 @@ import httpx
 import yaml
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 import uvicorn
 
 # ── Paths & env ───────────────────────────────────────────────────────────────
@@ -1030,6 +1031,41 @@ async def _free_ollama_vram() -> list[str]:
     return freed
 
 
+async def _restore_ollama_vram(models: list[str]) -> None:
+    """After an image gen, hand the GPU back to chat: free ComfyUI's cached
+    checkpoint and reload the models we ejected, so the next text turn is instant
+    instead of paying a cold reload. Runs as a background task once the image has
+    already been sent — never blocks the response, never raises.
+
+    The order matters on a shared card: ComfyUI caches its checkpoint (~GBs) in
+    VRAM after a gen, so we free that first, then reload the chat models into the
+    space it vacated. (Next image reloads ComfyUI cold — a fair trade, since chat
+    turns are far more frequent than image turns.)"""
+    if not models:
+        return
+    try:
+        await _ext_client.post(
+            f"{COMFYUI_URL}/free",
+            json={"unload_models": True, "free_memory": True},
+            timeout=15.0,
+        )
+    except Exception as e:
+        log.warning(f"could not free ComfyUI VRAM after image gen ({e!r})")
+
+    for name in models:
+        try:
+            # Load without inferring; no keep_alive override → server default
+            # (OLLAMA_KEEP_ALIVE) restores the model's original residency.
+            await _ext_client.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={"model": name},
+                timeout=120.0,
+            )
+        except Exception as e:
+            log.warning(f"could not reload {name!r} into VRAM ({e!r})")
+    log.info(f"restored Ollama VRAM after image gen: {', '.join(models)}")
+
+
 async def _generate_image_dalle(prompt: str) -> str:
     """Call DALL-E 3, save image locally, return public URL (cloud fallback)."""
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1629,11 +1665,13 @@ async def proxy(request: Request, path: str):
                 # ── Image role: generate locally (ComfyUI), else DALL-E ───────
                 if role_name == "image":
                     img_url, img_model = None, None
+                    freed: list[str] = []
                     # Prefer local, self-hosted ComfyUI — no cloud key, no per-image cost.
                     if _image_settings()["enabled"]:
                         # Hand the GPU to ComfyUI: on a shared card, resident Ollama
                         # chat models leave no VRAM for the image checkpoint. Eject
-                        # them first (they reload on the next text turn).
+                        # them first; a background task reloads them once the image
+                        # has been sent (see _restore_ollama_vram on the returns).
                         freed = await _free_ollama_vram()
                         if freed:
                             log.info(f"freed Ollama VRAM for image gen: {', '.join(freed)}")
@@ -1661,13 +1699,18 @@ async def proxy(request: Request, path: str):
                             "role": role_name, "model": img_model,
                             "message": last_msg[:120], "fallback": False,
                         })
+                        # Reload the ejected chat models in the background once the
+                        # image is on its way to the client — the next text turn is
+                        # then instant instead of a cold reload.
+                        restore = BackgroundTask(_restore_ollama_vram, freed)
                         if is_streaming:
                             return StreamingResponse(
                                 _image_sse(content, img_model),
                                 media_type="text/event-stream",
                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                                background=restore,
                             )
-                        return JSONResponse(_image_json(content, img_model))
+                        return JSONResponse(_image_json(content, img_model), background=restore)
 
                     # Image gen failed. Do NOT fall through to a text model — an LLM
                     # would just hallucinate a *description* of the picture (a poem
@@ -1683,13 +1726,17 @@ async def proxy(request: Request, path: str):
                         "`spag comfyui restart`, then try again.\n"
                         "- Check ComfyUI is up: **Services → ComfyUI**."
                     )
+                    # We ejected chat models to make room; put them back even though
+                    # the gen failed, so the user isn't left with an empty GPU.
+                    restore = BackgroundTask(_restore_ollama_vram, freed)
                     if is_streaming:
                         return StreamingResponse(
                             _image_sse(err, "image"),
                             media_type="text/event-stream",
                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                            background=restore,
                         )
-                    return JSONResponse(_image_json(err, "image"))
+                    return JSONResponse(_image_json(err, "image"), background=restore)
 
                 if not is_utility:
                     _increment_quota(primary)
