@@ -31,6 +31,12 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
   **companion files** into `unet/`, `clip/`, `vae/` (not just one checkpoint); (2) a
   verified `flux2.json` workflow template from the official ComfyUI Flux.2 example.
   Deferred until we can verify it on capable hardware. (Noted 2026-07-06.)
+- ☐ **AMD iGPU/dGPU Vulkan device pinning** — when an APU/iGPU sits alongside a
+  discrete Radeon, Ollama's Vulkan backend may pick the weak iGPU. Fix is to pin
+  `GGML_VK_VISIBLE_DEVICES` to the dGPU index in the Ollama systemd drop-in. Needs
+  APU+dGPU hardware to enumerate device indices correctly — shipping blind indexing
+  risks pinning to the *wrong* GPU, so deferred until testable. The AMD-Vulkan
+  default path (single-GPU) is unaffected. (Noted 2026-07-07.)
 - ✅ **HuggingFace login (gated/private models)** — `HF_TOKEN` field in Cockpit
   Settings (→ `api_keys.env`); Image-tab downloads send
   `--header 'Authorization: Bearer $HF_TOKEN'` **only when set** (harmless for public

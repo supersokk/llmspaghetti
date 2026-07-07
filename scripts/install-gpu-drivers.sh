@@ -104,16 +104,56 @@ EOF
   echo "ROCm" >> /opt/llmspaghetti/.needs-reboot
 }
 
-# ── Main dispatch ─────────────────────────────────────────────────────────────
-main() {
-  info "Detected GPU stack: $GPU_VENDOR"
+install_vulkan() {
+  # The default AMD path: lightweight Mesa Vulkan (RADV). Works on the widest
+  # range of Radeon cards out of the box and is what Ollama uses by default.
+  # ROCm stays an opt-in upgrade (Cockpit → Services) for cards that support it.
+  info "Installing Mesa Vulkan drivers for AMD (broad-compat, lightweight)..."
 
-  case "$GPU_VENDOR" in
+  if command -v vulkaninfo &>/dev/null && vulkaninfo --summary &>/dev/null; then
+    success "Vulkan already available — skipping driver install"
+  else
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      mesa-vulkan-drivers \
+      libvulkan1 \
+      vulkan-tools \
+      || warn "Vulkan driver install had issues — Ollama may fall back to CPU"
+  fi
+
+  # Ollama runs as the `ollama` service user — that's the account that opens
+  # /dev/dri/* for Vulkan, so it needs render+video group membership.
+  for u in ollama llmspaghetti; do
+    id "$u" &>/dev/null || continue
+    grep -q "^render:" /etc/group && usermod -aG render "$u" 2>/dev/null || true
+    usermod -aG video "$u" 2>/dev/null || true
+  done
+  # Group changes only apply to new processes — restart Ollama if it's running.
+  systemctl is-active --quiet ollama 2>/dev/null && systemctl restart ollama 2>/dev/null || true
+
+  success "Vulkan (Mesa RADV) ready — Ollama will use the AMD GPU automatically"
+  info  "Card supports ROCm? Install it later from Cockpit → Services for more speed."
+}
+
+# ── Main dispatch ─────────────────────────────────────────────────────────────
+# Usage: install-gpu-drivers.sh [target]
+#   target defaults to the auto-detected GPU_VENDOR. Pass an explicit target
+#   (e.g. "rocm") to force a specific stack — the Cockpit Services tab uses
+#   `install-gpu-drivers.sh rocm` to offer ROCm as an opt-in upgrade on top of
+#   the default Vulkan path.
+main() {
+  local target="${1:-$GPU_VENDOR}"
+  info "GPU stack: detected=$GPU_VENDOR, installing=$target"
+
+  case "$target" in
     cuda|cuda-pending)
       install_cuda
       ;;
     rocm|rocm-pending)
       install_rocm
+      ;;
+    vulkan)
+      install_vulkan
       ;;
     cuda+rocm)
       install_cuda
@@ -124,7 +164,7 @@ main() {
       warn "You can re-run this script after adding a GPU"
       ;;
     *)
-      warn "Unknown GPU vendor '$GPU_VENDOR' — skipping driver install"
+      warn "Unknown GPU target '$target' — skipping driver install"
       ;;
   esac
 
