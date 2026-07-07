@@ -44,7 +44,10 @@ services:
       - ${INSTALL_DIR:-/opt/llmspaghetti}/data:/opt/llmspaghetti/data
       - ${INSTALL_DIR:-/opt/llmspaghetti}/images:/opt/llmspaghetti/images
     env_file:
-      - ${INSTALL_DIR:-/opt/llmspaghetti}/config/api_keys.env
+      # Generated at install time — mark optional so `docker compose config` (CI's
+      # pre-build validation) doesn't fail when the file isn't present yet.
+      - path: ${INSTALL_DIR:-/opt/llmspaghetti}/config/api_keys.env
+        required: false
     environment:
       - LITELLM_URL=http://litellm:4000
       - OLLAMA_URL=http://host.docker.internal:11434
