@@ -27,13 +27,14 @@ and it silently sends each message to the right one.
 LLMSpaghetti turns a spare PC into a self-hosted **AI router**. You talk to a
 single chat window; behind it, a router reads each message, works out what you
 need, and routes it to the best model — a local coder model for code, a
-reasoning model for "think this through", a cloud model if you want one — all
-without you choosing. One URL for every OpenAI-compatible tool (Cursor,
-Continue, Aider, your own scripts).
+reasoning model for "think this through", a local **image** model for "draw
+me…", a cloud model if you want one — all without you choosing. One URL for
+every OpenAI-compatible tool (Cursor, Continue, Aider, your own scripts).
 
 ```
 You  →  one chat / one /v1 endpoint  →  Router (classifies)  →  the right model
-                                                                 (local or cloud)
+                                                                 (text · code · image,
+                                                                  local or cloud)
 ```
 
 ## Why build it?
@@ -52,20 +53,59 @@ answer will tell you which model handled it).
 
 ---
 
+## See it work
+
+**One chat. The router picks the model per message — text, code, and images, no switching.**
+
+![SpagDesk — general, code, and image routing in one conversation](docs/screenshots/spagdesk-workspace.PNG)
+
+> *"Hey there!"* → **general** (gemma2:2b) · *"a 2-line Python snippet"* → **code**
+> (qwen2.5-coder:3b) · *`//image a fox with rainbow colors`* → **image** (SDXL via
+> ComfyUI). Three models, three roles, one conversation — the panel on the right
+> names exactly who answered. All local, on a single 8GB card.
+
+### The control plane
+
+Everything is managed from a [Cockpit](https://cockpit-project.org) dashboard —
+GPU/VRAM, model downloads, routing rules, image engines, and one-click service
+installs (ComfyUI, Open WebUI, ROCm, MCP tools, …).
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.PNG" width="49%" alt="Dashboard — system, GPU/VRAM, and loaded models" />
+  <img src="docs/screenshots/routing-tab.PNG" width="49%" alt="Routing — assign local/cloud models to roles" />
+  <img src="docs/screenshots/models-tab.PNG" width="49%" alt="Models — search and pull from Ollama or HuggingFace" />
+  <img src="docs/screenshots/image-gen-tab.PNG" width="49%" alt="Image Generator — pick an engine by VRAM tier" />
+</p>
+
+---
+
 ## Status
 
-**Works today** (proven on a real GPU box — RTX 2060 Super, Ubuntu 26.04):
-install → setup wizard → chat, with **multi-model routing** sending different
-messages to different local models automatically, GPU-accelerated.
+**Works today** (proven on a real GPU box — RTX 2060 Super 8GB, Ubuntu 26.04):
+
+- **Multi-model text routing** — each message classified and sent to the right
+  local model automatically (general / code / reasoning), GPU-accelerated.
+- **Images in the same chat** — `//image <prompt>` (or "draw me…") routes to a
+  local **ComfyUI** engine; SD 1.5, SDXL and Z-Image proven. The router hands VRAM
+  back and forth between chat and image models to fit a single 8GB card.
+- **SpagDesk** — a built-in chat/workspace that shows the routing live (which role,
+  which model), so nothing is hidden. Open WebUI is an optional install.
+- **Cloud when you want it** — add a key and route to cloud models through the same
+  endpoint; a **provenance tag** on every reply tells you who answered.
+- **One control plane** — Cockpit dashboard for models, routing, image engines,
+  GPU/VRAM, and tap-to-install services.
 
 **Not built yet:** the bootable ISO (install is `git clone` + bootstrap for now),
-image routing, the VS Code extension, multi-node. Full picture in
-[TODO.md](TODO.md) and [CHANGELOG.md](CHANGELOG.md).
+the VS Code extension, and multi-node. Full picture in [TODO.md](TODO.md) and
+[CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## Milestones
 
+- **Images in one chat** — *2026-07-06* — `//image` generates locally via ComfyUI
+  (SDXL / Z-Image) in the same conversation as text and code, with the router
+  automatically freeing and restoring VRAM on a single 8GB card.
 - **First GPU deployment** — *2026-07-01* — full stack on real hardware
   (RTX 2060 Super); code vs general questions routed to different local models
   through the chat UI, fast, no soft-lock.
@@ -104,9 +144,11 @@ vulnerability privately.
 LLMSpaghetti is glue and a routing brain on top of excellent open-source
 projects. It would not exist without them:
 
-- **[Ollama](https://ollama.com)** — runs the local models
-- **[Open WebUI](https://github.com/open-webui/open-webui)** — the chat interface
-- **[LiteLLM](https://litellm.ai)** — unified gateway to 100+ providers
+- **[Ollama](https://ollama.com)** — runs the local text models
+- **[ComfyUI](https://github.com/comfyanonymous/ComfyUI)** — runs the local image models
+- **[LiteLLM](https://litellm.ai)** — unified gateway to 100+ cloud providers
+- **[Open WebUI](https://github.com/open-webui/open-webui)** — optional drop-in chat
+  client (SpagDesk, our own, is the built-in default)
 - **[Llama](https://ai.meta.com/llama/)** and the wider open-weight model
   community (Qwen, Mistral, Gemma, DeepSeek, …) — the models that make local
   inference possible
