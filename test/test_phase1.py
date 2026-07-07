@@ -12,7 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "eval"))
 from classifier import classify, Context
 
-GREEN = "\033[32m"; RED = "\033[31m"; BOLD = "\033[1m"; RESET = "\033[0m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
 
 passed = 0
 failed = 0

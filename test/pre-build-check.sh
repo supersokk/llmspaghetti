@@ -180,10 +180,10 @@ section "Caddyfile"
 
 CADDY="$REPO/stack/Caddyfile"
 if [[ -f "$CADDY" ]]; then
-  grep -q "reverse_proxy localhost:3000" "$CADDY" && pass "Caddyfile: WebUI proxy present" \
-    || fail "Caddyfile: WebUI proxy missing"
-  grep -q "reverse_proxy localhost:4000" "$CADDY" && pass "Caddyfile: LiteLLM proxy present" \
-    || fail "Caddyfile: LiteLLM proxy missing"
+  grep -q "root \* /opt/llmspaghetti/spagdesk" "$CADDY" && pass "Caddyfile: SpagDesk served at root" \
+    || fail "Caddyfile: SpagDesk root missing"
+  grep -q "reverse_proxy localhost:5000" "$CADDY" && pass "Caddyfile: router proxy present" \
+    || fail "Caddyfile: router proxy missing"
   grep -q "reverse_proxy localhost:7681" "$CADDY" && pass "Caddyfile: terminal proxy present" \
     || fail "Caddyfile: terminal proxy missing"
   grep -q "Upgrade" "$CADDY" && pass "Caddyfile: WebSocket upgrade headers present" \

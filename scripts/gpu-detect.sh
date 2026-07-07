@@ -69,9 +69,9 @@ _gpu_detect_main() {
   # ── Recommend ollama runtime flag ─────────────────────────────────────────
   local OLLAMA_RUNTIME="cpu"
   case "$DRIVER_STACK" in
+    cuda+rocm)   OLLAMA_RUNTIME="cuda" ;;  # prefer CUDA when both present
     cuda*)       OLLAMA_RUNTIME="cuda" ;;
     rocm*)       OLLAMA_RUNTIME="rocm" ;;
-    cuda+rocm)   OLLAMA_RUNTIME="cuda" ;;  # prefer CUDA when both present
   esac
 
   # ── Recommended model tier based on VRAM ─────────────────────────────────

@@ -252,12 +252,18 @@ function ProviderHealth() {
                   {ROLE_ICONS[role]} {role}
                 </td>
                 <td style={{ padding: "0.35rem 0.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem",
-                                fontFamily: "monospace", fontSize: "0.75rem", color: C.accent2 }}>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis",
-                                   whiteSpace: "nowrap", maxWidth: "130px" }}>{primary}</span>
-                    {primaryHealth && <HealthDot {...primaryHealth} />}
-                  </div>
+                  {role === "image" ? (
+                    // The image role goes to ComfyUI, NOT a text model — its role→model
+                    // entry is vestigial. Show the real handler instead of a stray LLM.
+                    <span style={{ fontSize: "0.75rem", color: C.purple }}>ComfyUI · Image Generator</span>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem",
+                                  fontFamily: "monospace", fontSize: "0.75rem", color: C.accent2 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis",
+                                     whiteSpace: "nowrap", maxWidth: "130px" }}>{primary}</span>
+                      {primaryHealth && <HealthDot {...primaryHealth} />}
+                    </div>
+                  )}
                 </td>
                 <td style={{ padding: "0.35rem 0.5rem" }}>
                   {fallback ? (

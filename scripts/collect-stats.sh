@@ -88,18 +88,18 @@ collect_ram() {
 
 collect_disk() {
   local sys_used sys_total sys_avail model_used model_total model_avail
-  read -r sys_used sys_total sys_avail <<< $(df -BM / | tail -1 | awk '{
+  read -r sys_used sys_total sys_avail <<< "$(df -BM / | tail -1 | awk '{
     gsub(/M/,"",$3); gsub(/M/,"",$2); gsub(/M/,"",$4)
     print $3, $2, $4
-  }')
+  }')"
 
   # Models dir may be on a different mount
   local model_dir="/opt/llmspaghetti/models"
   if mountpoint -q "$model_dir" 2>/dev/null; then
-    read -r model_used model_total model_avail <<< $(df -BM "$model_dir" | tail -1 | awk '{
+    read -r model_used model_total model_avail <<< "$(df -BM "$model_dir" | tail -1 | awk '{
       gsub(/M/,"",$3); gsub(/M/,"",$2); gsub(/M/,"",$4)
       print $3, $2, $4
-    }')
+    }')"
   else
     model_used=$sys_used
     model_total=$sys_total

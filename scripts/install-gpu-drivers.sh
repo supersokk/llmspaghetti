@@ -68,7 +68,7 @@ install_rocm() {
   fi
 
   # AMD ROCm keyring + repo
-  mkdir -p --mode=0755 /etc/apt/keyrings
+  mkdir -p /etc/apt/keyrings && chmod 0755 /etc/apt/keyrings
   wget -qO /etc/apt/keyrings/rocm.gpg \
     https://repo.radeon.com/rocm/rocm.gpg.key || error "Failed to download ROCm GPG key"
 

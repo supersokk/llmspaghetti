@@ -421,7 +421,7 @@ def _download_status():
                 try:
                     # ollama uses \r to redraw progress — treat CRs as newlines
                     raw   = logf.read_text(errors="ignore").replace("\r", "\n")
-                    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+                    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
                     if lines:
                         status = lines[-1]
                 except Exception:

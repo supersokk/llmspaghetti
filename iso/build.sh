@@ -224,7 +224,7 @@ mksquashfs "$ROOTFS" "$WORK_DIR/source-files/casper/filesystem.squashfs" \
   -comp xz -Xbcj x86 -b 1M -noappend -no-progress
 
 # Update filesystem size manifest
-printf $(du -sx --block-size=1 "$ROOTFS" | cut -f1) > \
+printf '%s' "$(du -sx --block-size=1 "$ROOTFS" | cut -f1)" > \
   "$WORK_DIR/source-files/casper/filesystem.size"
 
 success "Squashfs repacked"

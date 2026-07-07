@@ -115,7 +115,6 @@ def test_stats(host=None):
     # ── GPU (NVIDIA) ──────────────────────────────────────────────────────────
     print(f"\n  {DIM}── GPU{RESET}")
     nvidia = d.get("nvidia", [])
-    amd    = d.get("amd",    [])
     check("nvidia field present", "nvidia" in d)
     check("amd field present",    "amd" in d)
 
