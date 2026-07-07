@@ -88,6 +88,17 @@ image routing, the VS Code extension, multi-node. Full picture in
 
 ---
 
+## Security
+
+LLMSpaghetti is a **self-hosted LAN appliance** — the router and LiteLLM bind to
+`localhost` behind Caddy, and the master key is generated randomly per install. If
+you expose the box to the internet, harden it first (change the default token, add
+auth in front of the endpoints, lock down Cockpit). See
+**[SECURITY.md](SECURITY.md)** for the security model and how to report a
+vulnerability privately.
+
+---
+
 ## Acknowledgements
 
 LLMSpaghetti is glue and a routing brain on top of excellent open-source
