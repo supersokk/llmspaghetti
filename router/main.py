@@ -983,6 +983,53 @@ async def _generate_image_comfy(prompt: str) -> str:
     return f"{IMAGES_SERVE_URL}/{fname}"
 
 
+async def _free_ollama_vram() -> list[str]:
+    """Evict resident Ollama models so ComfyUI can have the GPU.
+
+    On a single shared card (e.g. 8GB), the chat models Ollama keeps in VRAM leave
+    no room for ComfyUI's checkpoint — image gen then OOMs and we fall through to a
+    text model (a poem instead of a picture). Before generating, we unload whatever
+    Ollama currently holds (`keep_alive:0`); those models transparently reload on the
+    next text turn. Especially important with OLLAMA_KEEP_ALIVE=-1, where models
+    never self-evict. Returns the names it ejected (for logging). Never raises."""
+    freed: list[str] = []
+    try:
+        ps = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=8.0)
+        ps.raise_for_status()
+        models = ps.json().get("models", [])
+    except Exception as e:
+        log.warning(f"could not list resident Ollama models to free VRAM ({e!r})")
+        return freed
+
+    for m in models:
+        name = m.get("name") or m.get("model")
+        if not name:
+            continue
+        try:
+            # Empty-prompt generate with keep_alive:0 = "unload now, don't infer".
+            await _ext_client.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={"model": name, "keep_alive": 0},
+                timeout=15.0,
+            )
+            freed.append(name)
+        except Exception as e:
+            log.warning(f"failed to unload {name!r} from VRAM ({e!r})")
+
+    # Unloads are async server-side — wait briefly until the card is actually clear
+    # so ComfyUI doesn't race an eviction still in flight (cap the wait).
+    if freed:
+        for _ in range(6):
+            await asyncio.sleep(0.5)
+            try:
+                still = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=5.0)
+                if not still.json().get("models"):
+                    break
+            except Exception:
+                break
+    return freed
+
+
 async def _generate_image_dalle(prompt: str) -> str:
     """Call DALL-E 3, save image locally, return public URL (cloud fallback)."""
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1584,6 +1631,12 @@ async def proxy(request: Request, path: str):
                     img_url, img_model = None, None
                     # Prefer local, self-hosted ComfyUI — no cloud key, no per-image cost.
                     if _image_settings()["enabled"]:
+                        # Hand the GPU to ComfyUI: on a shared card, resident Ollama
+                        # chat models leave no VRAM for the image checkpoint. Eject
+                        # them first (they reload on the next text turn).
+                        freed = await _free_ollama_vram()
+                        if freed:
+                            log.info(f"freed Ollama VRAM for image gen: {', '.join(freed)}")
                         try:
                             img_url   = await _generate_image_comfy(last_msg)
                             img_model = _comfy_display_model()
@@ -1615,7 +1668,28 @@ async def proxy(request: Request, path: str):
                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                             )
                         return JSONResponse(_image_json(content, img_model))
-                    log.warning("no image backend produced an image — falling back to text model")
+
+                    # Image gen failed. Do NOT fall through to a text model — an LLM
+                    # would just hallucinate a *description* of the picture (a poem
+                    # about a fox), which reads as success but isn't one. Return an
+                    # honest error so the user knows to retry / free VRAM / check
+                    # ComfyUI, instead of being quietly misled.
+                    log.warning("no image backend produced an image — returning an explicit error")
+                    err = (
+                        "⚠️ **Couldn't generate the image.** The image engine (ComfyUI) "
+                        "didn't return a picture — most often it's **out of VRAM** (chat "
+                        "models filling the GPU) or **not running**.\n\n"
+                        "- Free the GPU with the Dashboard's **⤓ Free VRAM** button, or "
+                        "`spag comfyui restart`, then try again.\n"
+                        "- Check ComfyUI is up: **Services → ComfyUI**."
+                    )
+                    if is_streaming:
+                        return StreamingResponse(
+                            _image_sse(err, "image"),
+                            media_type="text/event-stream",
+                            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                        )
+                    return JSONResponse(_image_json(err, "image"))
 
                 if not is_utility:
                     _increment_quota(primary)
