@@ -74,7 +74,6 @@ def test_model_suggestions():
 
     # Test the logic inline since module may not import cleanly without FastAPI
     tiers = ["large", "medium", "small", "tiny", "cpu"]
-    expected_keys = {"id", "name", "size", "desc"}
 
     # Replicate the function logic for testing
     suggestions_map = {
