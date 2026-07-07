@@ -92,7 +92,10 @@ services:
       --port 4000
       --num_workers 1
     env_file:
-      - /opt/llmspaghetti/config/api_keys.env
+      # Generated at install time — optional so `docker compose config` (CI's
+      # pre-build validation) doesn't fail when the file isn't present yet.
+      - path: /opt/llmspaghetti/config/api_keys.env
+        required: false
     environment:
       - LITELLM_LOG=ERROR
     extra_hosts:
