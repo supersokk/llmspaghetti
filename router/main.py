@@ -123,17 +123,33 @@ def _load_config() -> dict:
     return _config_cache
 
 
+def _default_model() -> str:
+    """The fallback model when a role is unset — a REAL model name, not an alias.
+    Prefer the configured `default_model` (set by first-boot to the user's picked
+    Ollama model), then the `general` role, else empty. We no longer fall back to
+    a `local-default` alias: roles reference raw downloaded names, and the router
+    forwards bare Ollama names straight to Ollama (see _route_backend)."""
+    cfg = _load_config()
+    dm = cfg.get("default_model")
+    if dm:
+        return str(dm)
+    gen = cfg.get("roles", {}).get("general")
+    if isinstance(gen, dict):
+        gen = gen.get("primary")
+    return str(gen) if gen else ""
+
+
 def _model_for_role(role: str) -> tuple[str, str | None]:
     """Returns (primary_model, fallback_model_or_None)."""
     roles = _load_config().get("roles", {})
     entry = roles.get(role)
     if entry is None or role == "none":
-        entry = roles.get("general") or "local-default"
+        entry = roles.get("general") or _default_model()
     if isinstance(entry, dict):
-        primary  = entry.get("primary") or "local-default"
+        primary  = entry.get("primary") or _default_model()
         fallback = entry.get("fallback") or None
         return str(primary), (str(fallback) if fallback else None)
-    return (str(entry) if entry else "local-default"), None
+    return (str(entry) if entry else _default_model()), None
 
 
 # ── Utility / housekeeping detection ──────────────────────────────────────────
@@ -190,9 +206,9 @@ def _utility_model() -> str:
     """Cheap model for housekeeping: explicit `utility` role wins, else reuse the
     `fast` model, else the local default."""
     roles = _load_config().get("roles", {})
-    entry = roles.get("utility") or roles.get("fast") or "local-default"
+    entry = roles.get("utility") or roles.get("fast") or _default_model()
     if isinstance(entry, dict):
-        entry = entry.get("primary") or "local-default"
+        entry = entry.get("primary") or _default_model()
     return str(entry)
 
 
@@ -1218,8 +1234,9 @@ _alias_mtime: float = 0.0
 
 
 def _load_aliases() -> dict:
-    """LiteLLM model_name → litellm_params.model (e.g. local-default → ollama/qwen2:0.5b,
-    gpt-4o → openai/gpt-4o). mtime-cached from litellm_config.yaml."""
+    """LiteLLM model_name → litellm_params.model (e.g. gpt-4o → openai/gpt-4o,
+    claude-sonnet → anthropic/…). Cloud only now — local models route by raw name.
+    mtime-cached from litellm_config.yaml."""
     global _alias_cache, _alias_mtime
     try:
         mtime = LITELLM_CFG_PATH.stat().st_mtime
@@ -1640,7 +1657,7 @@ async def proxy(request: Request, path: str):
                     payload.pop(_k, None)
 
                 last_msg, _ctx = _extract(messages)
-                original       = payload.get("model", "local-default")
+                original       = payload.get("model") or _default_model()
                 cfg            = _load_config()
                 routing_mode   = cfg.get("mode", "auto")
                 single_mdl     = cfg.get("single_model")
@@ -1940,7 +1957,7 @@ async def proxy(request: Request, path: str):
             for _turn in range(5):
                 tool_results = await _resolve_tool_calls(
                     loop_messages, tool_calls,
-                    primary_model or "local-default", fwd_headers,
+                    primary_model or _default_model(), fwd_headers,
                 )
                 loop_messages.extend(tool_results)
                 # Re-request without tools (let model formulate final answer)
@@ -1997,7 +2014,7 @@ async def proxy(request: Request, path: str):
             final_content += _provenance_footer(prov_model, prov_role)
             prov = _provenance_meta(prov_model, prov_role, used_fallback)
         return StreamingResponse(
-            _text_sse(final_content, primary_model or "local-default", prov),
+            _text_sse(final_content, primary_model or _default_model(), prov),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
