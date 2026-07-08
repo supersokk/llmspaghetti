@@ -110,8 +110,10 @@ card:
   (+`keep_alive:-1`): VRAM frees for ComfyUI, the model stays **hot in RAM and
   answerable on CPU** while the image renders.
 - `_promote_ollama_to_vram(demoted)` — background task on the image response: frees
-  ComfyUI's checkpoint, then reloads each demoted model onto the GPU. Because they
-  never left RAM, this is a warm move, not a cold disk read.
+  ComfyUI's checkpoint, **waits until its VRAM is actually released**, then for each
+  model **unloads the CPU copy and loads fresh** so Ollama's scheduler puts it back
+  on the GPU. (A plain reload of an already-loaded model is a no-op for placement —
+  it keeps the CPU copy — so the unload-then-reload is required.)
 - **Space-aware skip** — `_comfy_free_vram_mb()` reads ComfyUI's own device from
   `/system_stats`; if it already has ≥ `COMFYUI_MIN_FREE_VRAM_MB` (default 4000)
   free, we **don't disturb chat at all**. So a box with room to spare (or a 2nd GPU
