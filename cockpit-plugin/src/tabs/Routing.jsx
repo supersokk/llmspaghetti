@@ -621,17 +621,20 @@ export default function Routing() {
     cockpit.file(ROLE_TOOLS_PATH, { superuser: "try" }).read().then(yaml => {
       setRoleTools(parseRoleTools(yaml || ""));
     });
-    // Both are routable: LiteLLM aliases + cloud (from /v1/models) AND raw Ollama
-    // models (the router forwards those straight to Ollama). Merge so you can
-    // assign any pulled model by its real name, or a cloud alias.
+    // Assign roles by REAL model name: raw Ollama models (router forwards these
+    // straight to Ollama) + cloud model_names from /v1/models. We filter out the
+    // legacy local aliases (local-default / code-local) so you only ever pick a
+    // model by its actual downloaded name.
+    const LEGACY_ALIASES = new Set(["local-default", "code-local"]);
     Promise.all([
       rget("/v1/models").then(res => (res.data || []).map(m => m.id).filter(Boolean)).catch(() => []),
       run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'")
         .then(raw => raw.split("\n").filter(Boolean)).catch(() => []),
     ]).then(([aliases, ollama]) => {
       const seen = new Set(), merged = [];
-      for (const m of [...aliases, ...ollama]) if (m && !seen.has(m)) { seen.add(m); merged.push(m); }
-      setAvail(merged.length ? merged : ["local-default"]);
+      for (const m of [...aliases, ...ollama])
+        if (m && !seen.has(m) && !LEGACY_ALIASES.has(m)) { seen.add(m); merged.push(m); }
+      setAvail(merged);
     });
     // Check which MCP servers are installed
     const MCP_PKGS = {

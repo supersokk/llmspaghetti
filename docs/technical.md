@@ -110,7 +110,7 @@ Detection, in priority order:
    a prompt beginning `### Task:`; we detect that until we own the client.
 
 The `utility` model is set in `config/router_roles.yaml` (falls back to `fast`,
-then `local-default`) — point it at your smallest model. You never need a
+then `default_model`) — point it at your smallest model. You never need a
 *dedicated* housekeeping model; it reuses one you already run.
 
 **Cost note (nothing hidden).** Open WebUI fires these calls on essentially
@@ -119,8 +119,8 @@ background. That's Open WebUI's behavior, not ours — the router only ensures t
 land on the cheap `utility` model instead of your `reasoning`/expensive tier. Two
 implications worth knowing:
 
-- On a **cloud-only / router-only** box (no local model — `local-default` points
-  at a cloud provider), housekeeping calls cost money/quota on every message.
+- On a **cloud-only / router-only** box (no local model — roles point at a cloud
+  provider), housekeeping calls cost money/quota on every message.
   Point `utility` at your cheapest model, or turn Follow-Up / Title / Tags
   generation off in Open WebUI (Admin → Settings → Interface).
 - Once LLMSpaghetti ships its **own chat client**, we control whether these calls
@@ -134,8 +134,9 @@ that actually answered, in two forms:
 - **A visible footer** appended to the reply text —
   `` `↳ LLMSpaghetti → qwen2.5-coder:3b · code` `` — so it shows in any client
   (Open WebUI, VS Code, curl) and survives copy-paste. No per-client plugin.
-  The model name is resolved from its LiteLLM alias (e.g. `local-default` →
-  `qwen2:0.5b`) so it names the real model, not the internal alias.
+  Local models are named directly (raw Ollama name); a cloud model_name is
+  resolved through its LiteLLM alias (e.g. `claude-sonnet` → `anthropic/…`) so it
+  names the real model.
 - **A machine-readable field** on the response body, `x_llmspaghetti`, so tools
   can parse the decision programmatically:
 

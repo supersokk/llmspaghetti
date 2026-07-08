@@ -167,7 +167,7 @@ The routing happens server-side — the tool needs nothing else. Example:
 curl http://<server-ip>/v1/chat/completions \
   -H "Authorization: Bearer <your-key>" \
   -H "Content-Type: application/json" \
-  -d '{"model":"local-default","messages":[{"role":"user","content":"Hello"}]}'
+  -d '{"model":"auto","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ---

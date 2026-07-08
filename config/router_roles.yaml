@@ -1,8 +1,9 @@
 # LLMSpaghetti Router — Role → Model mapping
 # Managed by the Routing panel. Edit with: spag config
 #
-# Model names must match model_name entries in litellm_config.yaml.
-# Set a role to "local-default" to use your default local Ollama model.
+# Local roles use the RAW Ollama model name (e.g. "qwen2.5:3b") — the router
+# forwards bare names straight to Ollama, no alias needed. Cloud roles use a
+# model_name from litellm_config.yaml (e.g. "claude-sonnet").
 # Set a role to null to exclude it from auto-routing (direct calls only).
 #
 # Routing modes:
@@ -11,6 +12,10 @@
 
 mode: "auto"
 single_model: null
+
+# Fallback model when a role is unset — a real model name (raw Ollama name or a
+# cloud model_name), never an alias. First-boot sets this to your picked model.
+default_model: null
 
 # Append "↳ LLMSpaghetti → <model> · <role>" to every reply (visible footer + a
 # machine-readable x_llmspaghetti field). Core "show your work" principle —
@@ -29,15 +34,17 @@ show_provenance: true
 # log for "fuzzy override best sim=..." near-misses.
 knn_threshold: 0.6
 
+# First-boot fills these with your picked model (raw Ollama name) or a cloud
+# model_name. Assign them in the Routing panel — pick from your installed models.
 roles:
-  image:     "local-default"
-  code:      "local-default"
-  reasoning: "local-default"
-  fast:      "local-default"
-  document:  "local-default"
-  general:   "local-default"
+  image:     null
+  code:      null
+  reasoning: null
+  fast:      null
+  document:  null
+  general:   null
   # Housekeeping (chat titles, tags, follow-up suggestions, autocomplete) —
   # never user intent. Point at your smallest/cheapest model. If unset, the
-  # router reuses `fast`, then `local-default`.
-  utility:   "local-default"
+  # router reuses `fast`, then `default_model`.
+  utility:   null
   none:      null

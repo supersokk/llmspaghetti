@@ -355,9 +355,12 @@ export default function ImageGen() {
     setTesting(true); setTestImg(null); setTestMsg("Generating… (first run loads the model)");
     const t0 = Date.now();
     try {
+      // Force the image role with the //image command so this doesn't depend on
+      // classification (or on any model alias). The router intercepts image-role
+      // requests before touching the `model` field, so it's just a placeholder.
       const body = JSON.stringify({
-        model: "local-default", stream: false,
-        messages: [{ role: "user", content: `generate an image of ${testPrompt.trim()}` }],
+        model: "spag-image-test", stream: false,
+        messages: [{ role: "user", content: `//image ${testPrompt.trim()}` }],
       });
       const raw = await cockpit.http(ROUTER_PORT).request({
         method: "POST", path: "/v1/chat/completions",
