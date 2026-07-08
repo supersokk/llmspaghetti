@@ -1074,15 +1074,20 @@ async def _demote_ollama_to_cpu() -> list[str]:
         except Exception as e:
             log.warning(f"failed to demote {name!r} to RAM ({e!r})")
 
-    # The reload-to-RAM is async server-side — wait (capped) until no model is
-    # holding VRAM, so ComfyUI doesn't race a demotion still in flight.
+    # The reload-to-RAM is async server-side — wait (capped) until the models WE
+    # demoted are off the GPU, so ComfyUI doesn't race a demotion still in flight.
+    # Only check the demoted set: models we couldn't demote (e.g. embedders, which
+    # reject /api/generate) keep a little VRAM forever, so `all models == 0` would
+    # never be true and we'd always burn the full wait.
     if demoted:
+        want = set(demoted)
         for _ in range(8):
             await asyncio.sleep(0.5)
             try:
                 still = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=5.0)
-                if all(mm.get("size_vram", 0) == 0
-                       for mm in still.json().get("models", [])):
+                resident = {(mm.get("name") or mm.get("model")): mm.get("size_vram", 0)
+                            for mm in still.json().get("models", [])}
+                if all(resident.get(n, 0) == 0 for n in want):
                     break
             except Exception:
                 break
