@@ -1106,20 +1106,17 @@ async def _promote_ollama_to_vram(models: list[str]) -> None:
 
     for name in models:
         try:
-            # A plain reload of an ALREADY-loaded model is a no-op for placement:
-            # Ollama refreshes keep_alive but keeps the existing (CPU) copy — it
-            # does not relocate to the GPU. So we must unload the CPU copy first,
-            # then load fresh — the scheduler then places it back on the now-free
-            # GPU (default layout, so it can't over-commit/OOM).
-            await _ext_client.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={"model": name, "keep_alive": 0},
-                timeout=30.0,
-            )
-            await asyncio.sleep(0.3)  # let the unload settle before the fresh load
+            # Force GPU placement with an explicit num_gpu. A plain reload is a
+            # no-op on an already-loaded model, and unload-then-reload isn't atomic:
+            # a hot model (e.g. the default 'general' model) can catch a request in
+            # the gap and get reloaded onto CPU, so the reload no-ops again and it
+            # stays stuck. Setting num_gpu high is an explicit layout change, so
+            # Ollama relocates it to the GPU regardless of its current state — no
+            # unload window to race. Ollama clamps num_gpu to the model's layer
+            # count, so 999 == "all layers on GPU"; VRAM is free after the wait.
             r = await _ext_client.post(
                 f"{OLLAMA_URL}/api/generate",
-                json={"model": name, "keep_alive": -1},
+                json={"model": name, "options": {"num_gpu": 999}, "keep_alive": -1},
                 timeout=120.0,
             )
             # Embedding models reject /api/generate (400) — warm them via the
