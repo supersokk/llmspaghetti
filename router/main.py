@@ -59,6 +59,10 @@ COMFYUI_STEPS    = int(os.environ.get("COMFYUI_STEPS", "20"))
 COMFYUI_SIZE     = int(os.environ.get("COMFYUI_SIZE", "512"))
 COMFYUI_CFG      = float(os.environ.get("COMFYUI_CFG", "7.0"))
 COMFYUI_TIMEOUT  = float(os.environ.get("COMFYUI_TIMEOUT", "300"))  # slow on a shared 8GB card
+# If ComfyUI's card already has at least this much free VRAM, skip demoting chat
+# models — no need to disturb them (e.g. a 2nd GPU, or a small resident footprint).
+# Tune for your largest checkpoint (SDXL with --lowvram fits in a few GB).
+COMFYUI_MIN_FREE_VRAM_MB = int(os.environ.get("COMFYUI_MIN_FREE_VRAM_MB", "4000"))
 COMFYUI_NEGATIVE = os.environ.get(
     "COMFYUI_NEGATIVE", "text, watermark, blurry, low quality, deformed, extra limbs"
 )
@@ -984,63 +988,101 @@ async def _generate_image_comfy(prompt: str) -> str:
     return f"{IMAGES_SERVE_URL}/{fname}"
 
 
-async def _free_ollama_vram() -> list[str]:
-    """Evict resident Ollama models so ComfyUI can have the GPU.
+async def _comfy_free_vram_mb() -> int | None:
+    """Free VRAM (MB) on ComfyUI's own device, or None if it can't be read.
 
-    On a single shared card (e.g. 8GB), the chat models Ollama keeps in VRAM leave
-    no room for ComfyUI's checkpoint — image gen then OOMs and we fall through to a
-    text model (a poem instead of a picture). Before generating, we unload whatever
-    Ollama currently holds (`keep_alive:0`); those models transparently reload on the
-    next text turn. Especially important with OLLAMA_KEEP_ALIVE=-1, where models
-    never self-evict. Returns the names it ejected (for logging). Never raises."""
-    freed: list[str] = []
+    ComfyUI reports the card it's actually using in /system_stats (the one it was
+    pinned to with --cuda-device, if any), so this is the space the image
+    checkpoint will land in — the number that decides whether we need to disturb
+    chat at all."""
+    try:
+        r = await _ext_client.get(f"{COMFYUI_URL}/system_stats", timeout=8.0)
+        r.raise_for_status()
+        devices = r.json().get("devices", [])
+        if not devices:
+            return None
+        return int(devices[0].get("vram_free", 0)) // (1024 * 1024)
+    except Exception:
+        return None
+
+
+async def _demote_ollama_to_cpu() -> list[str]:
+    """Move resident Ollama models from VRAM into system RAM so ComfyUI can have the
+    GPU — WITHOUT unloading them.
+
+    On a single shared card (e.g. 8GB), chat models in VRAM leave no room for
+    ComfyUI's checkpoint → image gen OOMs. Rather than fully ejecting them (which
+    kills chat until a cold reload), we reload each with `num_gpu:0` — same model,
+    now entirely in system RAM. VRAM frees for ComfyUI, and chat stays *answerable*
+    (on CPU, slower) while the image generates on the same card. `_promote_ollama_
+    to_vram()` moves them back to the GPU afterward. Returns the names it demoted
+    (for the background promote). Never raises.
+
+    If ComfyUI's card already has enough free VRAM (2nd GPU, small resident
+    footprint, …) we disturb nothing and return []. NOTE: this checks ComfyUI's
+    device only — selectively demoting just the models on that card (vs. others on
+    a 2nd GPU) is the deferred multi-GPU work (see PLANNED-multi-gpu.md)."""
+    demoted: list[str] = []
+
+    # Already enough room for ComfyUI? Don't touch chat at all.
+    free_mb = await _comfy_free_vram_mb()
+    if free_mb is not None and free_mb >= COMFYUI_MIN_FREE_VRAM_MB:
+        log.info(f"ComfyUI card has {free_mb}MB free "
+                 f"(≥{COMFYUI_MIN_FREE_VRAM_MB}) — no demotion needed")
+        return demoted
+
     try:
         ps = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=8.0)
         ps.raise_for_status()
         models = ps.json().get("models", [])
     except Exception as e:
-        log.warning(f"could not list resident Ollama models to free VRAM ({e!r})")
-        return freed
+        log.warning(f"could not list resident Ollama models to demote ({e!r})")
+        return demoted
 
     for m in models:
         name = m.get("name") or m.get("model")
         if not name:
             continue
+        # Already fully on CPU (no VRAM in use)? Nothing to free — leave it be.
+        if m.get("size_vram", 0) == 0:
+            continue
         try:
-            # Empty-prompt generate with keep_alive:0 = "unload now, don't infer".
+            # Empty-prompt load with num_gpu:0 reloads the model wholly into RAM.
+            # keep_alive:-1 pins it there so it survives the whole image gen.
             await _ext_client.post(
                 f"{OLLAMA_URL}/api/generate",
-                json={"model": name, "keep_alive": 0},
-                timeout=15.0,
+                json={"model": name, "options": {"num_gpu": 0}, "keep_alive": -1},
+                timeout=60.0,
             )
-            freed.append(name)
+            demoted.append(name)
         except Exception as e:
-            log.warning(f"failed to unload {name!r} from VRAM ({e!r})")
+            log.warning(f"failed to demote {name!r} to RAM ({e!r})")
 
-    # Unloads are async server-side — wait briefly until the card is actually clear
-    # so ComfyUI doesn't race an eviction still in flight (cap the wait).
-    if freed:
-        for _ in range(6):
+    # The reload-to-RAM is async server-side — wait (capped) until no model is
+    # holding VRAM, so ComfyUI doesn't race a demotion still in flight.
+    if demoted:
+        for _ in range(8):
             await asyncio.sleep(0.5)
             try:
                 still = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=5.0)
-                if not still.json().get("models"):
+                if all(mm.get("size_vram", 0) == 0
+                       for mm in still.json().get("models", [])):
                     break
             except Exception:
                 break
-    return freed
+    return demoted
 
 
-async def _restore_ollama_vram(models: list[str]) -> None:
-    """After an image gen, hand the GPU back to chat: free ComfyUI's cached
-    checkpoint and reload the models we ejected, so the next text turn is instant
-    instead of paying a cold reload. Runs as a background task once the image has
-    already been sent — never blocks the response, never raises.
+async def _promote_ollama_to_vram(models: list[str]) -> None:
+    """After an image gen, move the demoted models back from RAM onto the GPU: free
+    ComfyUI's cached checkpoint, then reload each with the default GPU layout. Runs
+    as a background task once the image has already been sent — never blocks the
+    response, never raises.
 
-    The order matters on a shared card: ComfyUI caches its checkpoint (~GBs) in
-    VRAM after a gen, so we free that first, then reload the chat models into the
-    space it vacated. (Next image reloads ComfyUI cold — a fair trade, since chat
-    turns are far more frequent than image turns.)"""
+    Order matters on a shared card: ComfyUI caches its checkpoint (~GBs) in VRAM
+    after a gen, so we free that first, then move the chat models back into the
+    space it vacated. (Next image demotes them again — cheap now, since they're
+    already warm in RAM.)"""
     if not models:
         return
     try:
@@ -1054,16 +1096,17 @@ async def _restore_ollama_vram(models: list[str]) -> None:
 
     for name in models:
         try:
-            # Load without inferring; no keep_alive override → server default
-            # (OLLAMA_KEEP_ALIVE) restores the model's original residency.
+            # No num_gpu override → Ollama reloads with its default GPU layout,
+            # moving the model from RAM back onto the card. keep_alive:-1 restores
+            # the resident-forever state it had before the image.
             await _ext_client.post(
                 f"{OLLAMA_URL}/api/generate",
-                json={"model": name},
+                json={"model": name, "keep_alive": -1},
                 timeout=120.0,
             )
         except Exception as e:
-            log.warning(f"could not reload {name!r} into VRAM ({e!r})")
-    log.info(f"restored Ollama VRAM after image gen: {', '.join(models)}")
+            log.warning(f"could not promote {name!r} back to VRAM ({e!r})")
+    log.info(f"promoted models back to VRAM after image gen: {', '.join(models)}")
 
 
 async def _generate_image_dalle(prompt: str) -> str:
@@ -1665,16 +1708,17 @@ async def proxy(request: Request, path: str):
                 # ── Image role: generate locally (ComfyUI), else DALL-E ───────
                 if role_name == "image":
                     img_url, img_model = None, None
-                    freed: list[str] = []
+                    demoted: list[str] = []
                     # Prefer local, self-hosted ComfyUI — no cloud key, no per-image cost.
                     if _image_settings()["enabled"]:
-                        # Hand the GPU to ComfyUI: on a shared card, resident Ollama
-                        # chat models leave no VRAM for the image checkpoint. Eject
-                        # them first; a background task reloads them once the image
-                        # has been sent (see _restore_ollama_vram on the returns).
-                        freed = await _free_ollama_vram()
-                        if freed:
-                            log.info(f"freed Ollama VRAM for image gen: {', '.join(freed)}")
+                        # Make room for ComfyUI on a shared card: move resident chat
+                        # models from VRAM into RAM (they stay answerable on CPU), then
+                        # a background task moves them back once the image is sent (see
+                        # _promote_ollama_to_vram on the returns). Skips entirely if the
+                        # card already has room.
+                        demoted = await _demote_ollama_to_cpu()
+                        if demoted:
+                            log.info(f"demoted to RAM for image gen: {', '.join(demoted)}")
                         try:
                             img_url   = await _generate_image_comfy(last_msg)
                             img_model = _comfy_display_model()
@@ -1699,10 +1743,10 @@ async def proxy(request: Request, path: str):
                             "role": role_name, "model": img_model,
                             "message": last_msg[:120], "fallback": False,
                         })
-                        # Reload the ejected chat models in the background once the
-                        # image is on its way to the client — the next text turn is
-                        # then instant instead of a cold reload.
-                        restore = BackgroundTask(_restore_ollama_vram, freed)
+                        # Move the demoted chat models back onto the GPU in the
+                        # background once the image is on its way to the client — the
+                        # next text turn runs on the card again, not on CPU.
+                        restore = BackgroundTask(_promote_ollama_to_vram, demoted)
                         if is_streaming:
                             return StreamingResponse(
                                 _image_sse(content, img_model),
@@ -1726,9 +1770,9 @@ async def proxy(request: Request, path: str):
                         "`spag comfyui restart`, then try again.\n"
                         "- Check ComfyUI is up: **Services → ComfyUI**."
                     )
-                    # We ejected chat models to make room; put them back even though
-                    # the gen failed, so the user isn't left with an empty GPU.
-                    restore = BackgroundTask(_restore_ollama_vram, freed)
+                    # We demoted chat models to RAM to make room; move them back to
+                    # the GPU even though the gen failed, so chat isn't left on CPU.
+                    restore = BackgroundTask(_promote_ollama_to_vram, demoted)
                     if is_streaming:
                         return StreamingResponse(
                             _image_sse(err, "image"),

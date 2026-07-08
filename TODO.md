@@ -83,6 +83,11 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 - ☐ Modelfile snapshot → restore defaults
 - ☐ Runtime selector (Ollama / llama.cpp / vLLM)
 - ☐ Make pulled models auto-routable — ⚠️ open design ([PLANNED-model-management.md](docs/PLANNED-model-management.md))
+- 🚧 **Model placement / residency** — "Loaded & Placement" section: Load-to-GPU /
+  Load-to-CPU(RAM) / Eject per model + a ComfyUI preload/eject row. Single-GPU
+  slice is testable now; per-GPU pinning, pin-vs-pool mode, and CPU/RAM targets
+  fully designed in ([PLANNED-multi-gpu.md](docs/PLANNED-multi-gpu.md)). Multi-GPU
+  core deferred until 2-GPU hardware exists to verify device scheduling.
 
 ---
 
