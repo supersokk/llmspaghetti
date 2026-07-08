@@ -17,6 +17,7 @@ import Dashboard from "./tabs/Dashboard.jsx";
 import Models    from "./tabs/Models.jsx";
 import Routing   from "./tabs/Routing.jsx";
 import ImageGen  from "./tabs/ImageGen.jsx";
+import Downloads from "./tabs/Downloads.jsx";
 import Services  from "./tabs/Services.jsx";
 
 // ── Cockpit API (available in Cockpit context) ────────────────────────────────
@@ -751,6 +752,7 @@ const TABS = [
   { id: "models",    label: "Models" },
   { id: "routing",   label: "Routing" },
   { id: "imagegen",  label: "🖼 Image" },
+  { id: "downloads", label: "↓ Downloads" },
   { id: "gateway",   label: "API Gateway" },
   { id: "services",  label: "Services" },
   { id: "terminal",  label: "＞_ Terminal" },
@@ -806,6 +808,7 @@ function App() {
         {tab === "models"    && <Models />}
         {tab === "routing"   && <Routing />}
         {tab === "imagegen"  && <ImageGen />}
+        {tab === "downloads" && <Downloads />}
         {tab === "gateway"   && <Gateway />}
         {tab === "services"  && <Services />}
         {tab === "terminal"  && <Terminal />}
