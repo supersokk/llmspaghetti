@@ -1106,9 +1106,17 @@ async def _promote_ollama_to_vram(models: list[str]) -> None:
 
     for name in models:
         try:
-            # No num_gpu override → Ollama reloads with its default GPU layout,
-            # moving the model from RAM back onto the card. keep_alive:-1 restores
-            # the resident-forever state it had before the image.
+            # A plain reload of an ALREADY-loaded model is a no-op for placement:
+            # Ollama refreshes keep_alive but keeps the existing (CPU) copy — it
+            # does not relocate to the GPU. So we must unload the CPU copy first,
+            # then load fresh — the scheduler then places it back on the now-free
+            # GPU (default layout, so it can't over-commit/OOM).
+            await _ext_client.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={"model": name, "keep_alive": 0},
+                timeout=30.0,
+            )
+            await asyncio.sleep(0.3)  # let the unload settle before the fresh load
             r = await _ext_client.post(
                 f"{OLLAMA_URL}/api/generate",
                 json={"model": name, "keep_alive": -1},
