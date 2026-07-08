@@ -1094,16 +1094,34 @@ async def _promote_ollama_to_vram(models: list[str]) -> None:
     except Exception as e:
         log.warning(f"could not free ComfyUI VRAM after image gen ({e!r})")
 
+    # ComfyUI's /free returns immediately, but handing the ~GBs of checkpoint VRAM
+    # back to the driver takes a moment. If we reload the models right away, Ollama
+    # sees the card still occupied and loads them onto the CPU (they never make it
+    # to VRAM). Wait until ComfyUI's card is actually clear before promoting.
+    for _ in range(30):  # cap ~15s
+        free_mb = await _comfy_free_vram_mb()
+        if free_mb is None or free_mb >= COMFYUI_MIN_FREE_VRAM_MB:
+            break
+        await asyncio.sleep(0.5)
+
     for name in models:
         try:
             # No num_gpu override → Ollama reloads with its default GPU layout,
             # moving the model from RAM back onto the card. keep_alive:-1 restores
             # the resident-forever state it had before the image.
-            await _ext_client.post(
+            r = await _ext_client.post(
                 f"{OLLAMA_URL}/api/generate",
                 json={"model": name, "keep_alive": -1},
                 timeout=120.0,
             )
+            # Embedding models reject /api/generate (400) — warm them via the
+            # embeddings endpoint instead so they too return to the GPU.
+            if r.status_code == 400:
+                await _ext_client.post(
+                    f"{OLLAMA_URL}/api/embeddings",
+                    json={"model": name, "prompt": "warmup", "keep_alive": -1},
+                    timeout=120.0,
+                )
         except Exception as e:
             log.warning(f"could not promote {name!r} back to VRAM ({e!r})")
     log.info(f"promoted models back to VRAM after image gen: {', '.join(models)}")
