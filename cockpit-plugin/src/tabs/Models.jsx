@@ -23,11 +23,20 @@ const C = {
 
 // cockpit.spawn has a minimal PATH without /usr/local/bin (ollama), so prepend one.
 const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
-const run = (cmd) => new Promise((res) => {
-  let out = "";
+// Every command gets a hard timeout. Without it, a curl to a busy/thrashing
+// Ollama (common right when a model is loading) never returns, the promise never
+// resolves, and the 4s poll keeps stacking hung superuser processes until the
+// whole Cockpit bridge wedges ("hangs like crazy"). On timeout we kill the proc
+// and resolve what we have so the UI keeps moving. Callers that legitimately take
+// a while (a model load) pass a longer timeoutMs.
+const run = (cmd, timeoutMs = 15000) => new Promise((res) => {
+  let out = "", done = false;
+  const finish = (v) => { if (!done) { done = true; res(v); } };
   const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" });
+  const timer = setTimeout(() => { try { proc.close("terminated"); } catch { /* mock */ } finish(out.trim()); }, timeoutMs);
   proc.stream(d => { out += d; });
-  proc.then(() => res(out.trim())).catch(() => res(""));
+  proc.then(() => { clearTimeout(timer); finish(out.trim()); })
+      .catch(() => { clearTimeout(timer); finish(""); });
 });
 
 const SNAPSHOTS_DIR = "/opt/llmspaghetti/config/modelfiles";
@@ -350,6 +359,7 @@ export default function Models() {
   const [hfOpen, setHfOpen]         = useState({});    // {repo: [quant,...]} expanded quant lists
   const [openConfig, setOpenConfig] = useState(null);
   const intervalRef = useRef(null);
+  const runningInFlight = useRef(false);  // guard so the 4s poll can't stack up
 
   // ── Data fetchers ──────────────────────────────────────────────────────────
 
@@ -367,12 +377,18 @@ export default function Models() {
     // (empty output / parse error — common right when a model is loading and
     // Ollama is busy) KEEP the last known state. Blanking to [] made every model
     // flicker to grey. A genuine "nothing loaded" comes back as {"models":[]}.
-    const raw = await run("curl -sf http://localhost:11434/api/ps 2>/dev/null");
-    if (!raw) return;
+    if (runningInFlight.current) return;  // a previous poll is still running — skip
+    runningInFlight.current = true;
     try {
-      const data = JSON.parse(raw);
-      setRunning(Array.isArray(data.models) ? data.models : []);
-    } catch { /* keep last known state */ }
+      const raw = await run("curl -sf --max-time 4 http://localhost:11434/api/ps 2>/dev/null", 6000);
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        setRunning(Array.isArray(data.models) ? data.models : []);
+      } catch { /* keep last known state */ }
+    } finally {
+      runningInFlight.current = false;
+    }
   }, []);
 
   const loadGpuInfo = useCallback(async () => {
@@ -405,8 +421,8 @@ export default function Models() {
       // Load and KEEP it resident (keep_alive:-1). A per-request keep_alive
       // overrides OLLAMA_KEEP_ALIVE, so a fixed duration here would fight the
       // user's "keep loaded" policy — "Load" means load and hold.
-      await run(`curl -sf -X POST http://localhost:11434/api/generate \\
-        -d '{"model":"${name}","keep_alive":-1}' > /dev/null 2>&1`);
+      await run(`curl -sf --max-time 175 -X POST http://localhost:11434/api/generate \\
+        -d '{"model":"${name}","keep_alive":-1}' > /dev/null 2>&1`, 180000);
       await loadRunning();
       setAlert({ type: "ok", msg: `${name} loaded into VRAM (kept resident)` });
     } finally {
@@ -418,8 +434,8 @@ export default function Models() {
     setBusy(b => ({ ...b, [name]: "stopping" }));
     setAlert(null);
     try {
-      await run(`curl -sf -X POST http://localhost:11434/api/generate \\
-        -d '{"model":"${name}","keep_alive":0}' > /dev/null 2>&1`);
+      await run(`curl -sf --max-time 55 -X POST http://localhost:11434/api/generate \\
+        -d '{"model":"${name}","keep_alive":0}' > /dev/null 2>&1`, 60000);
       await loadRunning();
       setAlert({ type: "ok", msg: `${name} unloaded from memory (VRAM + RAM)` });
     } finally {
