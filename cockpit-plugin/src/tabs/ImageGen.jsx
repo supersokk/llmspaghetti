@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { downloads } from "../downloads.js";
 
 const cockpit = window.cockpit || {
   spawn: () => ({ stream: () => {}, then: (f) => { f(""); return { catch: () => {} }; }, catch: () => {} }),
@@ -78,61 +79,9 @@ function comfyDest(path) {
   return { folder: "checkpoints", standalone: true, kind: "checkpoint" };   // aio/, checkpoints/, or repo root
 }
 
-// Module-level download manager. Cockpit UNMOUNTS a tab's component when you switch
-// away, which would destroy per-component download state (and the progress bar)
-// even though the wget keeps running. Living at module scope, this singleton and
-// its running process survive tab switches, so the bar and the completion result
-// persist. Components subscribe to get live updates while they're mounted.
-const downloadMgr = {
-  state: null,               // {id, pct, label, phase:"run"|"done"|"error", msg} | null
-  listeners: new Set(),
-  subscribe(fn) { this.listeners.add(fn); fn(this.state); return () => this.listeners.delete(fn); },
-  _set(s) { this.state = s; this.listeners.forEach(fn => { try { fn(s); } catch {} }); },
-  busy() { return !!(this.state && this.state.phase === "run"); },
-  clear() { if (this.state && this.state.phase !== "run") this._set(null); },
-  start(comfyDir, id, destRel, url, sizeLabel, doneMsg, token) {
-    if (this.busy()) return false;
-    this._set({ id, pct: null, label: "starting…", phase: "run" });
-    // For GATED repos, resolve the token'd HF redirect to its signed CDN URL FIRST,
-    // then download that plain URL. This unlocks gated models AND fixes the stalled
-    // progress bar: the signed CDN URL rejects an unexpected Authorization header, so
-    // sending the token straight to aria2c/wget wedged the transfer. HEAD-resolving
-    // avoids that (and a public download just skips this step). aria2c (16 parallel
-    // connections) when available, else wget — both emit an "NN%" the parser reads.
-    const resolve = token
-      ? `R=$(curl -sIL -H 'Authorization: Bearer ${token}' -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null); [ -n "$R" ] && URL="$R"; `
-      : "";
-    const cmd =
-      `d="${comfyDir}"; d="\${d/#\\~/$HOME}"; ` +
-      `out="$d/models/${destRel}"; dir="\$(dirname "$out")"; base="\$(basename "$out")"; mkdir -p "$dir"; ` +
-      `URL='${url}'; ${resolve}` +
-      `if command -v aria2c >/dev/null 2>&1; then ` +
-      `aria2c -x16 -s16 -k1M --console-log-level=warn --summary-interval=1 --allow-overwrite=true -d "$dir" -o "$base" "$URL"; ` +
-      `else wget --progress=dot:mega -O "$out" "$URL"; fi`;
-    let out = "";
-    const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "out" });
-    proc.stream(d => {
-      out = (out + d).slice(-2000);
-      const tail = d.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
-      const m = tail.match(/(\d+)%/);
-      this._set({ id, pct: m ? parseInt(m[1], 10) : (this.state ? this.state.pct : null),
-                  label: sizeLabel || "", phase: "run" });
-    });
-    proc.then(
-      () => { this._set({ id, pct: 100, phase: "done", msg: doneMsg || "Downloaded." });
-              setTimeout(() => this.clear(), 12000); },
-      (e) => {
-        const gated = /\b(401|403)\b|unauthor|forbidden|gated|restricted/i.test(out);
-        const msg = gated
-          ? "Download failed — this model looks gated. Add your HuggingFace token in Settings, accept the model's licence on huggingface.co, then retry."
-          : `Download failed: ${e && e.message || e}`;
-        this._set({ id, phase: "error", msg });
-        setTimeout(() => this.clear(), 15000);
-      },
-    );
-    return true;
-  },
-};
+// Downloads run through the shared module-level manager (src/downloads.js) so
+// they survive Cockpit unmounting this tab, and appear in the Downloads tab
+// alongside Ollama model pulls.
 
 function serializeConfig(c) {
   return [
@@ -162,7 +111,7 @@ export default function ImageGen() {
   const [archs, setArchs]       = useState([]);            // architecture packs (installed/available)
   const [installingArch, setInstallingArch] = useState(null);
   const [hfToken, setHfToken]   = useState("");            // optional HF token for gated downloads
-  const [dl, setDl]             = useState(downloadMgr.state);  // from the module-level manager (survives tab switches)
+  const [dlSnap, setDlSnap]     = useState(downloads._snapshot());  // shared manager (survives tab switches)
   const [alert, setAlert]       = useState(null);
   const [testPrompt, setTestPrompt] = useState("a red fox in a snowy forest, cinematic");
   const [testing, setTesting]   = useState(false);
@@ -205,20 +154,32 @@ export default function ImageGen() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // Subscribe to the module-level download manager so the progress bar reappears
-  // (with live %) whenever this tab is mounted, even after switching away and back.
-  useEffect(() => downloadMgr.subscribe(setDl), []);
+  // Subscribe to the shared download manager so the progress bar reappears (with
+  // live %) whenever this tab is mounted, even after switching away and back.
+  useEffect(() => downloads.subscribe(setDlSnap), []);
+
+  // Derive this tab's banner from the shared state: the active checkpoint download
+  // if one is running, else the most recent finished one (shown briefly). Shape
+  // matches what the banner below already renders: {id, pct, label, phase, msg}.
+  const _fileActive = (dlSnap.active || []).find(j => j.kind === "file");
+  const _fileRecent = (dlSnap.history || []).find(
+    h => h.kind === "file" && (Date.now() - h.endedAt) < 15000);
+  const dl = _fileActive
+    ? { id: _fileActive.name, pct: _fileActive.pct, label: _fileActive.label, phase: "run" }
+    : _fileRecent
+    ? { id: _fileRecent.name, phase: _fileRecent.phase, msg: _fileRecent.msg }
+    : null;
 
   // When a download finishes, surface the result and refresh the installed list.
+  const dlPhase = dl ? dl.phase : null;
   const prevPhase = useRef(null);
   useEffect(() => {
-    const phase = dl ? dl.phase : null;
-    if (prevPhase.current === "run" && (phase === "done" || phase === "error")) {
-      setAlert(phase === "done" ? { type: "ok", msg: dl.msg } : { type: "err", msg: dl.msg });
+    if (prevPhase.current === "run" && (dlPhase === "done" || dlPhase === "error")) {
+      setAlert(dlPhase === "done" ? { type: "ok", msg: dl.msg } : { type: "err", msg: dl.msg });
       loadAll();
     }
-    prevPhase.current = phase;
-  }, [dl, loadAll]);
+    prevPhase.current = dlPhase;
+  }, [dlPhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveCfg = async (next) => {
     setCfg(next);
@@ -243,13 +204,22 @@ export default function ImageGen() {
   // the logged-in user (no superuser) so ~/ComfyUI resolves to THEIR home and the
   // files are owned correctly. Shared by the catalog cards and the HuggingFace box.
   const downloadFile = (id, destRel, url, sizeLabel, doneMsg) => {
-    if (downloadMgr.busy()) {
-      setAlert({ type: "err", msg: `Already downloading ${dl && dl.id} — let it finish.` });
+    if ((dlSnap.active || []).some(j => j.kind === "file")) {
+      setAlert({ type: "err", msg: `A checkpoint is already downloading — let it finish.` });
       return;
     }
     const comfyDir = (cfg && cfg.comfy_dir) || "~/ComfyUI";
+    // destRel is "<folder>/<file>" (e.g. "checkpoints/model.safetensors"); the file
+    // lands in <comfy_dir>/models/<folder>/. Let bash expand a leading ~ (see
+    // startFileDownload). Runs as the logged-in user so ~/ComfyUI + ownership resolve.
+    const slash = destRel.lastIndexOf("/");
+    const sub   = slash >= 0 ? destRel.slice(0, slash) : "";
+    const base  = slash >= 0 ? destRel.slice(slash + 1) : destRel;
     setAlert(null);
-    downloadMgr.start(comfyDir, id, destRel, url, sizeLabel, doneMsg, hfToken);
+    downloads.startFileDownload({
+      name: id, dir: `${comfyDir}/models/${sub}`, outBase: base,
+      url, sizeLabel, doneMsg, token: hfToken,
+    });
   };
 
   const download = (eng) => {

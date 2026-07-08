@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { downloads } from "../downloads.js";
 
 const cockpit = window.cockpit || {
   spawn: (cmd, opts) => ({ stream: () => {}, then: (f) => { f(""); return { catch: () => {} }; }, catch: () => {} }),
@@ -345,9 +346,7 @@ export default function Models() {
   const [installed, setInstalled]   = useState([]);
   const [running, setRunning]       = useState([]);  // loaded in VRAM
   const [gpuVram, setGpuVram]       = useState(null);
-  const [pulling, setPulling]       = useState(null);
-  const [pullLog, setPullLog]       = useState("");
-  const [pullProg, setPullProg]     = useState(null);  // {pct,label,status} live download bar
+  const [dlState, setDlState]       = useState(downloads._snapshot()); // shared download manager
   const [customModel, setCustomModel] = useState("");
   const [filter, setFilter]         = useState("all");
   const [alert, setAlert]           = useState(null);
@@ -460,50 +459,35 @@ export default function Models() {
     }
   };
 
-  // Parse Ollama's pull stream into a progress bar. Ollama emits lines like
-  // "pulling <digest>:  45% ▕███ ▏ 2.1 GB/4.7 GB  35 MB/s  1m2s" (carriage-return
-  // updated), plus phase lines ("pulling manifest", "verifying", "success").
-  const parseProgress = (chunk) => {
-    const tail = chunk.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
-    const pctM  = tail.match(/(\d+)%/);
-    const sizeM = tail.match(/([\d.]+\s*[KMGT]?B)\s*\/\s*([\d.]+\s*[KMGT]?B)/);
-    const phase = tail.match(/^\s*(pulling manifest|verifying|writing|success|pulling\b[^:]*)/i);
-    return {
-      pct:   pctM ? Math.min(100, parseInt(pctM[1], 10)) : null,
-      label: sizeM ? `${sizeM[1]} / ${sizeM[2]}` : (phase ? phase[1].trim() : tail.trim().slice(0, 48)),
-      status: /success/i.test(tail) ? "done" : "run",
-    };
-  };
+  // Downloads run through the shared module-level manager (src/downloads.js) so
+  // their progress survives switching tabs / refreshing the webview — and the
+  // Downloads tab shows them alongside image-checkpoint downloads. Here we only
+  // subscribe for the inline strip and derive the current pull from it.
+  useEffect(() => downloads.subscribe(setDlState), []);
+  const modelJobs = (dlState.active || []).filter(j => j.kind === "model");
+  const pulling   = modelJobs.length ? modelJobs[0].name : null;   // Ollama serialises pulls
+  const pullProg  = modelJobs.length
+    ? { pct: modelJobs[0].pct, label: modelJobs[0].label, status: "run" }
+    : null;
 
-  // Non-blocking pull: kicks off the download and returns immediately. The search
-  // field and the rest of the panel stay live; progress shows in its own strip.
+  // When a pull finishes, surface the result and refresh the installed list.
+  const prevPulling = useRef(null);
+  useEffect(() => {
+    if (prevPulling.current && !modelJobs.some(j => j.name === prevPulling.current)) {
+      const done = (dlState.history || []).find(h => h.kind === "model" && h.name === prevPulling.current);
+      if (done) setAlert(done.phase === "done"
+        ? { type: "ok", msg: done.msg } : { type: "err", msg: done.msg });
+      refresh();
+    }
+    prevPulling.current = pulling;
+  }, [pulling]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const pullModel = (modelId) => {
-    if (pulling) {                       // one download at a time — Ollama serialises anyway
-      setAlert({ type: "err", msg: `Already downloading ${pulling} — let it finish first.` });
+    if (!downloads.startOllamaPull(modelId)) {
+      setAlert({ type: "err", msg: `${modelId} is already downloading.` });
       return;
     }
-    setPulling(modelId);
-    setPullLog("");
-    setPullProg({ pct: null, label: "starting…", status: "run" });
     setAlert(null);
-    const proc = cockpit.spawn(["bash", "-c", `${PATHFIX} ollama pull '${modelId}'`],
-      { superuser: "try", err: "message" });
-    proc.stream(d => {
-      setPullLog(prev => (prev + d).slice(-4000));
-      const p = parseProgress(d);
-      setPullProg(prev => ({
-        pct:   p.pct != null ? p.pct : (prev ? prev.pct : null),
-        label: p.label || (prev ? prev.label : ""),
-        status: p.status,
-      }));
-    });
-    // Cleanup runs on both success and failure. Uses the two-arg then() form —
-    // cockpit's process promise doesn't reliably implement .finally().
-    const finish = () => { setPulling(null); setPullProg(null); setPullLog(""); refresh(); };
-    proc.then(
-      () => { setAlert({ type: "ok",  msg: `${modelId} downloaded` }); finish(); },
-      (err) => { setAlert({ type: "err", msg: `Pull failed: ${err && err.message || err}` }); finish(); },
-    );
   };
 
   // ── HuggingFace GGUF search ────────────────────────────────────────────────
