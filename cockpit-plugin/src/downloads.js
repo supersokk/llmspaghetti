@@ -22,6 +22,27 @@ const _ck =
 
 let _seq = 0;
 const MAX_HISTORY = 100;
+// Reload-unique id (the _seq counter resets on refresh, but restored history keeps
+// old ids — a timestamp prefix keeps new ids from colliding as React keys).
+function _nextId() { return `${Date.now().toString(36)}-${(++_seq).toString(36)}`; }
+
+// History persists to localStorage so it survives a full page refresh (the
+// in-memory manager is re-created on reload). Active downloads can't survive a
+// reload — their spawned process channel dies with the page — so only history is
+// stored.
+const HISTORY_KEY = "spag-downloads-history";
+function _loadHistory() {
+  try {
+    const raw = (typeof localStorage !== "undefined") && localStorage.getItem(HISTORY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.slice(0, MAX_HISTORY) : [];
+  } catch { return []; }
+}
+function _saveHistory(history) {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch { /* quota / unavailable — ignore */ }
+}
 
 // Ollama pull stream → {pct,label}. Lines look like
 // "pulling <digest>:  45% ▕███▏ 2.1 GB/4.7 GB  35 MB/s" plus phase lines.
@@ -44,8 +65,8 @@ function parseFile(chunk) {
 }
 
 export const downloads = {
-  active: [],   // [{id, kind:"model"|"file", name, pct, label, phase:"run", startedAt, _proc, _out}]
-  history: [],  // [{id, kind, name, phase:"done"|"error", msg, endedAt}]  newest first
+  active: [],              // [{id, kind:"model"|"file", name, pct, label, phase:"run", startedAt, _proc, _out}]
+  history: _loadHistory(), // [{id, kind, name, phase:"done"|"error", msg, endedAt}]  newest first
   listeners: new Set(),
 
   subscribe(fn) {
@@ -78,9 +99,10 @@ export const downloads = {
     const [j] = this.active.splice(i, 1);
     this.history.unshift({ id: j.id, kind: j.kind, name: j.name, phase, msg, endedAt: Date.now() });
     this.history = this.history.slice(0, MAX_HISTORY);
+    _saveHistory(this.history);
     this._emit();
   },
-  clearHistory() { this.history = []; this._emit(); },
+  clearHistory() { this.history = []; _saveHistory(this.history); this._emit(); },
 
   cancel(id) {
     const j = this.active.find(x => x.id === id);
@@ -91,7 +113,7 @@ export const downloads = {
   // ── Ollama model pull ──────────────────────────────────────────────────────
   startOllamaPull(modelId) {
     if (this.isActive(modelId)) return false;
-    const id = ++_seq;
+    const id = _nextId();
     const proc = _ck.spawn(["bash", "-c", `${PATHFIX} ollama pull '${modelId}'`],
       { superuser: "try", err: "message" });
     this.active.push({ id, kind: "model", name: modelId, pct: null,
@@ -111,7 +133,7 @@ export const downloads = {
   // which otherwise stalls the transfer). aria2c (16 conns) when present, else wget.
   startFileDownload({ name, dir, outBase, url, sizeLabel, doneMsg, token }) {
     if (this.isActive(name)) return false;
-    const id = ++_seq;
+    const id = _nextId();
     const resolve = token
       ? `R=$(curl -sIL -H 'Authorization: Bearer ${token}' -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null); [ -n "$R" ] && URL="$R"; `
       : "";
