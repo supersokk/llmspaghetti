@@ -1932,6 +1932,31 @@ async def proxy(request: Request, path: str):
         params=dict(request.query_params),
     )
 
+    # Graceful degradation: if this request carried MCP tools but the model can't
+    # do tool-calling, Ollama replies 4xx "<model> does not support tools". Rather
+    # than surfacing that error, strip the tools and retry so chat still works. This
+    # makes tool injection safe on ANY model — a role pointed at a non-tool model
+    # just gets a plain reply (no need to fix config first).
+    if 400 <= upstream.status_code < 500:
+        try:
+            had_tools = bool(json.loads(body).get("tools"))
+        except Exception:
+            had_tools = False
+        if had_tools and "tool" in (upstream.text or "").lower() \
+                and "support" in (upstream.text or "").lower():
+            try:
+                notool = json.loads(body)
+                notool.pop("tools", None)
+                notool.pop("tool_choice", None)
+                log.info(f"{primary_model!r} rejected tools — retrying without them")
+                upstream = await up_client.request(
+                    method=request.method, url=f"/{path}",
+                    headers=fwd_headers, content=json.dumps(notool).encode(),
+                    params=dict(request.query_params),
+                )
+            except Exception as e:
+                log.warning(f"retry-without-tools failed ({e!r})")
+
     used_fallback = False
     if upstream.status_code >= 500 and fallback_body:
         log.warning(
