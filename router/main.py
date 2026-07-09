@@ -1942,7 +1942,6 @@ async def proxy(request: Request, path: str):
             log.warning(f"fallback also failed: {fb_e!r}")
 
     # ── Tool call resolution loop (max 5 turns) ────────────────────────────────
-    tool_loop_messages = None
     if upstream.status_code < 500:
         try:
             resp_data = upstream.json()
@@ -1988,7 +1987,6 @@ async def proxy(request: Request, path: str):
                                    .get("tool_calls") or [])
                 if not next_tool_calls:
                     upstream = follow_resp
-                    tool_loop_messages = loop_messages
                     break
                 loop_messages.append(follow_data["choices"][0]["message"])
                 tool_calls = next_tool_calls
@@ -2008,8 +2006,12 @@ async def proxy(request: Request, path: str):
     add_prov   = bool(route_meta and prov_model and _provenance_enabled()
                       and upstream.status_code < 500)
 
-    # If we converted streaming→non-streaming for tool resolution, re-wrap as SSE
-    if tools_injected and tool_loop_messages is not None:
+    # If we injected tools we forced stream=False (tool resolution needs the whole
+    # response). The client still asked for a stream, so re-wrap as SSE — whether or
+    # not a tool call actually happened. (A weak model often returns plain text with
+    # no structured tool_calls; without this, that text was returned as raw JSON and
+    # the streaming client rendered it as an error.)
+    if tools_injected:
         try:
             final_content = (upstream.json()["choices"][0]["message"]["content"] or "")
         except Exception:

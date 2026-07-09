@@ -4,27 +4,19 @@
 # Available tools: filesystem, memory, fetch, brave-search, github, sqlite, postgres
 # A tool must be installed (Services → MCP Tools) before it can be used.
 #
-# Warning: adding tools to the "fast" role increases response latency.
+# OPT-IN BY DESIGN: tools are OFF for every role by default. Injecting a tool into
+# a role means EVERY message routed there goes to the model WITH that tool — which
+# small local models (e.g. 7B) often mishandle, emitting a tool call as plain text
+# or rambling about it even for a simple "hi". Enable tools only for a role you
+# point at a tool-capable model, from the Routing → Tools panel.
+#
+# Tools also force that role's requests non-streaming (needed to resolve the call)
+# and add latency — another reason to keep `fast`/`general` tool-free.
 
-reasoning:
-  - memory
-  - fetch
-
-code:
-  - filesystem
-  - memory
-  - github
-
-fast: []
-
-general:
-  - memory
-  - fetch
-
-document:
-  - filesystem
-  - memory
-
-image: []
-
-none: []
+reasoning: []
+code:      []
+fast:      []
+general:   []
+document:  []
+image:     []
+none:      []
