@@ -19,7 +19,9 @@
   ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 
   header{display:flex;align-items:center;gap:.7rem;padding:0 1.25rem;height:54px;
-    background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
+    background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
+    position:relative}
+  header .spacer{flex:1}
   header .logo{font-size:1.15rem;font-weight:800;letter-spacing:.02em;flex-shrink:0}
   header .sub{font-size:.78rem;color:var(--dim);flex-shrink:0}
   header .dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
@@ -95,10 +97,16 @@
     padding:.7rem 1.1rem;font-weight:700;font-size:.9rem;cursor:pointer;flex-shrink:0}
   button.send:disabled{opacity:.5;cursor:not-allowed}
 
-  /* Centered in the header, filling the space between the logo and the status. */
-  .modebar{flex:1;min-width:0;display:flex;gap:.3rem;align-items:center;
-    justify-content:center;flex-wrap:nowrap;overflow-x:auto}
+  /* Absolutely centered over the TRANSCRIPT column (window minus the 300px
+     Insight sidebar), not the whole window — so it sits over the chat. Sits on
+     top of the header row; pointer-events pass through the empty parts to the
+     logo/status underneath. */
+  .modebar{position:absolute;top:0;bottom:0;left:1.25rem;right:calc(300px + 1.25rem);
+    display:flex;gap:.3rem;align-items:center;justify-content:center;
+    flex-wrap:nowrap;overflow-x:auto;pointer-events:none}
+  .modebar > *{pointer-events:auto}
   .modebar::-webkit-scrollbar{height:0}
+  @media(max-width:720px){ .modebar{right:1.25rem} }  /* sidebar hidden → center full width */
   .modebar .lbl{font-size:.65rem;color:var(--dim);text-transform:uppercase;
     letter-spacing:.06em;margin-right:.1rem;flex-shrink:0}
   .mode-btn{background:var(--bg);border:1px solid var(--border);color:var(--dim);
@@ -122,8 +130,9 @@
   <header>
     <span class="logo">🍝 SpagDesk</span>
     <span class="sub">the router, visible</span>
-    <div class="modebar" id="modebar"></div>
+    <span class="spacer"></span>
     <span class="dot"></span><span class="status" id="status">ready</span>
+    <div class="modebar" id="modebar"></div>
   </header>
 
   <main>
