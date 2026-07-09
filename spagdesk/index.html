@@ -44,7 +44,22 @@
   .bubble code,.bubble pre{font-family:'JetBrains Mono','Fira Code',monospace;
     font-size:.85rem}
   .bubble img.genimg{max-width:100%;border-radius:8px;margin:.3rem 0;display:block;
-    border:1px solid var(--border)}
+    border:1px solid var(--border);cursor:zoom-in}
+
+  /* Download / artifact affordances */
+  .dl-btn{background:var(--bg);border:1px solid var(--border);color:var(--accent2);
+    border-radius:6px;padding:.22rem .55rem;font-size:.73rem;font-weight:600;
+    cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;
+    align-items:center;gap:.25rem}
+  .dl-btn:hover{border-color:var(--accent)}
+  .dl-btn.ghost{color:var(--dim)}
+  .img-wrap{display:inline-block}
+  .img-wrap a.preview{display:block}
+  .img-dl{margin-top:.35rem}
+  .artifacts{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.55rem;align-items:center}
+  .filecard{display:flex;align-items:center;gap:.7rem;background:var(--bg);
+    border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem}
+  .filecard .fname{font-family:'JetBrains Mono',monospace;font-size:.79rem;color:var(--text)}
 
   .meta{display:flex;align-items:center;gap:.6rem;margin-top:.45rem;
     font-size:.74rem;color:var(--dim);flex-wrap:wrap}
@@ -219,6 +234,61 @@ function renderInsight(info){
 // image lane. Built with DOM nodes (never innerHTML) so model output can't
 // inject markup, and only whitelisted image sources are turned into <img>.
 const IMG_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+// ── Download / file artifacts ───────────────────────────────────────────────
+// Trigger a browser download of some text as a file (saved to the user's PC).
+function downloadBlob(name, content, mime){
+  const blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+function stamp(){
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+}
+const MIME = { md:"text/markdown", txt:"text/plain", json:"application/json",
+  csv:"text/csv", js:"text/javascript", py:"text/x-python", html:"text/html",
+  yaml:"text/yaml", yml:"text/yaml", sh:"text/x-sh" };
+function mimeFor(name){ return (MIME[(name.split(".").pop()||"").toLowerCase()] || "text/plain") + ";charset=utf-8"; }
+
+// A fenced block whose info string carries a filename is a downloadable file:
+// ```md sum.md   /   ```sum.md   /   ```python script.py
+const FENCE_RE = /```([^\n`]*)\n([\s\S]*?)```/g;
+function parseArtifacts(text){
+  const out = []; let m; FENCE_RE.lastIndex = 0;
+  while((m = FENCE_RE.exec(text))){
+    const info = (m[1] || "").trim();
+    const fn = info.split(/\s+/).find(t => /^[\w.\-\/]+\.[A-Za-z0-9]+$/.test(t));
+    if(fn) out.push({ filename: fn.split("/").pop(), content: m[2].replace(/\n$/, "") });
+  }
+  return out;
+}
+// Append download affordances under a finished assistant message: a file card per
+// named artifact (📄 name + Download), and — if there's no named file — a generic
+// "Save reply". Image turns skip this; each image has its own Download.
+function addArtifacts(wrap, text, isImage){
+  if(isImage || !text.trim()) return;
+  const bar = document.createElement("div"); bar.className = "artifacts";
+  const files = parseArtifacts(text);
+  for(const f of files){
+    const card = document.createElement("div"); card.className = "filecard";
+    card.innerHTML = `<span class="fname">📄 ${f.filename}</span>`;
+    const btn = document.createElement("button");
+    btn.className = "dl-btn"; btn.textContent = "⬇ Download";
+    btn.onclick = () => downloadBlob(f.filename, f.content, mimeFor(f.filename));
+    card.appendChild(btn); bar.appendChild(card);
+  }
+  if(!files.length){
+    const btn = document.createElement("button");
+    btn.className = "dl-btn ghost"; btn.textContent = "⬇ Save reply (.md)";
+    btn.onclick = () => downloadBlob(`spagdesk-${stamp()}.md`, text, "text/markdown;charset=utf-8");
+    bar.appendChild(btn);
+  }
+  wrap.appendChild(bar);
+}
+
 function renderContent(bubble, text){
   bubble.textContent = "";
   let last = 0, m, hasImg = false;
@@ -227,10 +297,20 @@ function renderContent(bubble, text){
     if(m.index > last) bubble.appendChild(document.createTextNode(text.slice(last, m.index)));
     const url = m[1];
     if(/^(\/images\/|https?:\/\/|data:image\/)/.test(url)){
+      const box = document.createElement("div"); box.className = "img-wrap";
+      const preview = document.createElement("a");        // click image → full size
+      preview.className = "preview"; preview.href = url;
+      preview.target = "_blank"; preview.rel = "noreferrer";
       const img = document.createElement("img");
       img.className = "genimg"; img.src = url; img.alt = "generated image";
       img.loading = "lazy";
-      bubble.appendChild(img);
+      preview.appendChild(img); box.appendChild(preview);
+      const name = (url.split("/").pop() || "image").split("?")[0] || "image.png";
+      const dl = document.createElement("a");             // ⬇ save to PC
+      dl.className = "dl-btn img-dl"; dl.href = url; dl.download = name;
+      dl.textContent = "⬇ Download";
+      box.appendChild(dl);
+      bubble.appendChild(box);
       hasImg = true;
     }else{
       bubble.appendChild(document.createTextNode(m[0]));  // unknown source → keep literal
@@ -374,6 +454,7 @@ async function send(){
         messages.push({ role:"assistant", content: clean });
       }
       renderInsight(info);
+      addArtifacts(wrap, clean, isImage);    // ⬇ save reply / named file cards
       addCorrectionRow(wrap, text, info);
     }else{
       // No chat content — surface whatever came back (usually a router/LiteLLM error).
