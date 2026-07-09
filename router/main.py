@@ -189,6 +189,14 @@ def _is_utility_request(payload: dict, headers, last_msg: str) -> bool:
 # (//code, //reasoning, …), but //image is the headline use.
 _SLASH_RE = re.compile(r"^\s*/{1,2}([a-zA-Z]+)[ \t]+(.+)$", re.DOTALL)
 
+# Short-form aliases so `//f whats the capital of norway` → fast, etc. SpagDesk's
+# mode toggles send these, and they're handy to type inline. Long names still work.
+# Note: image is deliberately NOT aliased to a single letter — `//i …` is too easy
+# to trigger by accident, and firing off an image gen is more disruptive than a
+# text reroute. Use `//image …` for that.
+_SLASH_ALIASES = {"r": "reasoning", "c": "code", "d": "document",
+                  "f": "fast", "g": "general"}
+
 
 def _slash_command(msg: str):
     """('image', 'fish…') if msg begins with //<role> <prompt>, else (None, msg)."""
@@ -197,6 +205,7 @@ def _slash_command(msg: str):
     m = _SLASH_RE.match(msg)
     if m:
         role = m.group(1).lower()
+        role = _SLASH_ALIASES.get(role, role)
         if role in VALID_ROLES and role != "none":
             return role, m.group(2).strip()
     return None, msg
