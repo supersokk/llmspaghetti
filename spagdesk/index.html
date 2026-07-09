@@ -123,6 +123,21 @@
   .toast.show{opacity:1}
   .toast.ok{border-color:rgba(63,185,80,.4)}
   .toast.err{border-color:rgba(248,81,73,.4);color:var(--red)}
+
+  .newchat{flex-shrink:0;background:var(--bg);border:1px solid var(--border);
+    color:var(--dim);border-radius:16px;padding:.22rem .6rem;font-size:.74rem;
+    font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .newchat:hover{border-color:var(--accent);color:var(--accent2)}
+
+  /* Collapsible reasoning (<think>…</think>) — hidden by default. */
+  details.reasoning{margin-top:.5rem;border:1px solid var(--border);
+    border-radius:8px;background:var(--bg);overflow:hidden}
+  details.reasoning summary{cursor:pointer;padding:.4rem .7rem;font-size:.74rem;
+    font-weight:600;color:var(--dim);list-style:none;user-select:none}
+  details.reasoning summary::-webkit-details-marker{display:none}
+  details.reasoning summary:hover{color:var(--accent2)}
+  details.reasoning .reasoning-body{padding:.2rem .7rem .6rem;font-size:.82rem;
+    color:var(--dim);white-space:pre-wrap;line-height:1.5;border-top:1px solid var(--border)}
   @media(max-width:720px){aside{display:none}}
 </style>
 </head>
@@ -132,6 +147,7 @@
     <span class="sub">the router, visible</span>
     <span class="spacer"></span>
     <span class="dot"></span><span class="status" id="status">ready</span>
+    <button class="newchat" id="newchat" title="Start a fresh chat (clears history)">＋ New</button>
     <div class="modebar" id="modebar"></div>
   </header>
 
@@ -194,12 +210,28 @@ let mode = "auto";
 
 const messages = [];        // OpenAI-format history sent to the router
 const $t = document.getElementById("transcript");
-const $empty = document.getElementById("empty");
+let   $empty = document.getElementById("empty");
+const EMPTY_HTML  = $empty ? $empty.outerHTML : "";           // to restore on New chat
+const INSIGHT_HTML = '<div class="insight-empty">Send a message to see how the ' +
+  'router handled it — role, model, and fallback.</div>';
 const $input = document.getElementById("input");
 const $send = document.getElementById("send");
 const $status = document.getElementById("status");
 const $insight = document.getElementById("insight");
 const $modebar = document.getElementById("modebar");
+const $newchat = document.getElementById("newchat");
+
+// Start a fresh chat: clear history + transcript, reset insight and mode. Fixes
+// context poisoning — one bad turn no longer haunts the rest of the session.
+function newChat(){
+  messages.length = 0;
+  $t.innerHTML = EMPTY_HTML;
+  $empty = document.getElementById("empty");
+  $insight.innerHTML = INSIGHT_HTML;
+  setMode("auto");
+  $input.value = ""; autogrow(); $input.focus();
+}
+$newchat.onclick = newChat;
 
 function buildModeBar(){
   $modebar.innerHTML = '<span class="lbl">Route to</span>';
@@ -296,6 +328,28 @@ function addArtifacts(wrap, text, isImage){
     bar.appendChild(btn);
   }
   wrap.appendChild(bar);
+}
+
+// ── Reasoning (<think>…</think>) ────────────────────────────────────────────
+// Some models (deepseek-r1, …) emit their chain-of-thought in <think></think>.
+// We hide it from the answer, from history, and from downloads, and offer it in a
+// collapsible block instead — so the reply is the answer, not the monologue.
+function stripThink(text){
+  let t = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const open = t.search(/<think>/i);          // an unclosed <think> is still streaming
+  if(open !== -1) t = t.slice(0, open);
+  return t;
+}
+function extractThink(text){
+  return [...text.matchAll(/<think>([\s\S]*?)<\/think>/gi)]
+    .map(x => x[1].trim()).filter(Boolean).join("\n\n");
+}
+function addReasoning(wrap, think){
+  const det = document.createElement("details"); det.className = "reasoning";
+  const sum = document.createElement("summary"); sum.textContent = "🧠 reasoning";
+  const body = document.createElement("div"); body.className = "reasoning-body";
+  body.textContent = think;
+  det.appendChild(sum); det.appendChild(body); wrap.appendChild(det);
 }
 
 function renderContent(bubble, text){
@@ -446,14 +500,19 @@ async function send(){
         const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
         if(delta && delta.content){
           full += delta.content;
-          bubble.textContent = full.replace(FOOTER_RE, "");   // hide text footer; shown natively
+          const shown = stripThink(full).replace(FOOTER_RE, "").trim();  // hide footer + reasoning
+          bubble.textContent = shown || (/<think>/i.test(full) ? "🧠 thinking…" : "…");
           $t.scrollTop = $t.scrollHeight;
         }
       }
     }
-    const clean = full.replace(FOOTER_RE, "").trim();
+    const noFooter = full.replace(FOOTER_RE, "");
+    const think = extractThink(noFooter);
+    let clean = stripThink(noFooter).trim();
+    if(!clean) clean = think || noFooter.trim();   // only-thinking / unclosed → show what we have
     if(clean){
       renderContent(bubble, clean);          // render inline images; text stays text
+      if(think && think !== clean) addReasoning(wrap, think);   // foldable 🧠 reasoning
       // Image turns (explicit //image, or the router classified it as image) stay
       // OUT of the text history so later chat isn't confused by the picture/prompt.
       const isImage = isImageCmd || (info && info.role === "image");
