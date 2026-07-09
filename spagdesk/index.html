@@ -79,6 +79,17 @@
     padding:.7rem 1.1rem;font-weight:700;font-size:.9rem;cursor:pointer;flex-shrink:0}
   button.send:disabled{opacity:.5;cursor:not-allowed}
 
+  .modebar{max-width:820px;margin:0 auto .55rem;display:flex;gap:.4rem;
+    flex-wrap:wrap;align-items:center}
+  .modebar .lbl{font-size:.7rem;color:var(--dim);text-transform:uppercase;
+    letter-spacing:.06em;margin-right:.15rem}
+  .mode-btn{background:var(--bg);border:1px solid var(--border);color:var(--dim);
+    border-radius:20px;padding:.26rem .7rem;font-size:.77rem;font-weight:600;
+    cursor:pointer;font-family:inherit}
+  .mode-btn:hover{border-color:var(--accent)}
+  .mode-btn.active{background:rgba(47,129,247,.15);border-color:var(--accent);
+    color:var(--accent2)}
+
   .toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%);
     background:var(--surface2);border:1px solid var(--border);border-radius:8px;
     padding:.55rem .9rem;font-size:.82rem;color:var(--text);opacity:0;
@@ -117,8 +128,9 @@
   </main>
 
   <footer>
+    <div class="modebar" id="modebar"></div>
     <div class="composer">
-      <textarea id="input" rows="1" placeholder="Message the router…  (tip: //image <prompt> forces an image · Enter to send)"></textarea>
+      <textarea id="input" rows="1" placeholder="Message the router…  (Auto routes per message · pick a mode to pin one · //f, //c … work inline · Enter to send)"></textarea>
       <button class="send" id="send">Send</button>
     </div>
   </footer>
@@ -134,6 +146,26 @@ const CORRECT = "/spag/api/correction";
 const ROLES   = ["reasoning","code","fast","document","general","image"];
 const FOOTER_RE = /\n*`?↳ LLMSpaghetti →[^\n]*`?\s*$/;  // strip the text footer; we render it natively
 
+// ── Mode toggles ────────────────────────────────────────────────────────────
+// Pin the conversation to one role (like a sticky //x), or Auto = classify each
+// message. Under the hood a mode just prepends the role's slash command to the
+// OUTGOING message — the router strips it. The typed text stays clean in the
+// transcript and history, so multi-turn chat isn't polluted by the directive.
+const MODES = [
+  { id:"auto",      label:"Auto" },      { id:"reasoning", label:"Reasoning" },
+  { id:"code",      label:"Code" },      { id:"general",   label:"General" },
+  { id:"document",  label:"Document" },  { id:"fast",      label:"Fast" },
+  { id:"image",     label:"Image" },
+];
+const MODE_SLASH = { reasoning:"//r", code:"//c", general:"//g",
+                     document:"//d", fast:"//f", image:"//image" };
+// An inline directive the user typed (short or long form) — overrides the toggle.
+const SLASH_IN   = /^\s*\/{1,2}(r|c|d|f|g|reasoning|code|document|fast|general|image)\b[ \t]*/i;
+const SLASH_NORM = { r:"reasoning", c:"code", d:"document", f:"fast", g:"general",
+                     reasoning:"reasoning", code:"code", document:"document",
+                     fast:"fast", general:"general", image:"image" };
+let mode = "auto";
+
 const messages = [];        // OpenAI-format history sent to the router
 const $t = document.getElementById("transcript");
 const $empty = document.getElementById("empty");
@@ -141,6 +173,28 @@ const $input = document.getElementById("input");
 const $send = document.getElementById("send");
 const $status = document.getElementById("status");
 const $insight = document.getElementById("insight");
+const $modebar = document.getElementById("modebar");
+
+function buildModeBar(){
+  $modebar.innerHTML = '<span class="lbl">Route to</span>';
+  for(const m of MODES){
+    const b = document.createElement("button");
+    b.className = "mode-btn" + (m.id === mode ? " active" : "");
+    b.textContent = m.label; b.dataset.mode = m.id;
+    b.title = m.id === "auto"
+      ? "Router classifies each message and picks the model"
+      : `Send every message to the ${m.label} model`;
+    b.onclick = () => setMode(m.id);
+    $modebar.appendChild(b);
+  }
+}
+function setMode(id){
+  mode = id;
+  for(const b of $modebar.querySelectorAll(".mode-btn"))
+    b.classList.toggle("active", b.dataset.mode === mode);
+  $input.focus();
+}
+buildModeBar();
 
 function toast(msg, kind){
   const el = document.getElementById("toast");
@@ -238,27 +292,38 @@ function setStatus(){
 }
 
 async function send(){
-  const text = $input.value.trim();
-  if(!text) return;
+  const rawText = $input.value.trim();
+  if(!rawText) return;
+  // Resolve the role: an inline //x the user typed wins; else the active mode
+  // toggle; else Auto (let the router classify). `text` is the clean content shown
+  // + stored; `wire` is what the router sees (prefixed so it routes, then strips).
+  const mm   = rawText.match(SLASH_IN);
+  const role = mm ? SLASH_NORM[mm[1].toLowerCase()] : (mode !== "auto" ? mode : null);
+  const text = mm ? rawText.slice(mm[0].length).trim() : rawText;
+  if(!text) return;                                        // a directive with no content
+  const wire = role ? `${MODE_SLASH[role]} ${text}` : text;
+
   $input.value = ""; autogrow(); $input.focus();
-  addMessage("user").bubble.textContent = text;
+  addMessage("user").bubble.textContent = text;            // clean display, no //x
 
   const { wrap, bubble } = addMessage("assistant");
   bubble.textContent = "…";
   inFlight++; setStatus();
 
-  // An explicit "//image …" only needs the prompt (ComfyUI ignores history) and must
-  // NOT enter the TEXT conversation — else later chat gets confused by the "//image"
-  // text / the picture. Send it standalone; keep it out of `messages`. Normal turns
-  // push to shared history and snapshot it (so a concurrent send can't mutate it).
-  const isImageCmd = /^\s*\/{1,2}image\b/i.test(text);
+  // Image turns only need the prompt (ComfyUI ignores history) and must NOT enter
+  // the TEXT conversation — else later chat gets confused by the picture. Send them
+  // standalone. Normal turns push CLEAN text to shared history and snapshot it (so a
+  // concurrent send can't mutate it); only the last wire message carries the //x, so
+  // history stays clean while the router still routes to the chosen role.
+  const isImageCmd = role === "image";
   let userMsg = null, reqMessages;
   if(isImageCmd){
-    reqMessages = [{ role:"user", content:text }];
+    reqMessages = [{ role:"user", content: wire }];
   }else{
-    userMsg = { role:"user", content:text };
+    userMsg = { role:"user", content: text };
     messages.push(userMsg);
     reqMessages = messages.slice();
+    if(role) reqMessages[reqMessages.length - 1] = { role:"user", content: wire };
   }
 
   let full = "", info = null, raw = "", errMsg = null;
@@ -266,7 +331,7 @@ async function send(){
     const res = await fetch(CHAT, {
       method:"POST",
       headers:{ "Content-Type":"application/json", "Authorization":"Bearer sk-llmspaghetti" },
-      body: JSON.stringify({ model:"local-default", stream:true, messages: reqMessages })
+      body: JSON.stringify({ model:"auto", stream:true, messages: reqMessages })
     });
     if(!res.body) throw new Error("no response body from router");
     const reader = res.body.getReader();
