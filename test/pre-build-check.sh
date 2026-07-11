@@ -37,6 +37,7 @@ REQUIRED=(
   "community/fixtures/contributed/general.jsonl"
   "docs/PLANNED-routing-fixture-flywheel.md"
   "scripts/bootstrap.sh"
+  "scripts/node-bootstrap.sh"
   "scripts/gpu-detect.sh"
   "scripts/install-gpu-drivers.sh"
   "scripts/install-terminal.sh"
@@ -91,6 +92,7 @@ section "Shell script syntax (bash -n)"
 
 SHELL_SCRIPTS=(
   "scripts/bootstrap.sh"
+  "scripts/node-bootstrap.sh"
   "scripts/gpu-detect.sh"
   "scripts/install-gpu-drivers.sh"
   "scripts/install-terminal.sh"
