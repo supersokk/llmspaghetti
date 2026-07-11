@@ -133,12 +133,19 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 
 ## 🌐 Phase 8 — Multi-node
 
-Structure is node-aware already; implementation is future.
+**Design locked: SSH-push control model** — core + compute nodes over SSH, node
+join + Cockpit Nodes tab (the Services-tab pattern, remote). Testable now with the
+2060S box as node-1; BC-250 Vulkan compute waits for the cards.
+Full design → [PLANNED-multi-node.md](docs/PLANNED-multi-node.md).
 
-- ☐ Worker join script (one command)
-- ☐ Node discovery (mDNS + manual fallback)
-- ☐ Nodes panel, cross-node routing + load balancing, failover
-- ☐ CPU inference node role
+- ☐ **`node join`** — thin node bootstrap: GPU drivers + Ollama (LAN-exposed) +
+  authorize the core's SSH key (+ optional ufw to core IP)
+- ☐ **Cockpit "Nodes" tab** — add node, push installs (ComfyUI/ROCm), model pulls,
+  status — SSH-targeted, mirrors Services
+- ☐ **Core routing → node** — model→node map; router forwards to the node's Ollama
+  URL instead of localhost (extends the deferred multi-GPU backend map)
+- ☐ Node registry (`config/nodes.yaml`) + optional mDNS discovery
+- ☐ Load balancing / failover across nodes
 - ☐ Storage node — deferred until requested
 
 ---
