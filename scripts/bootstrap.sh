@@ -143,6 +143,10 @@ if [[ -d "$SCRIPT_DIR/../console" ]]; then
 fi
 
 chown -R "$LLMSPAGHETTI_USER:$LLMSPAGHETTI_USER" "$INSTALL_DIR"
+# ...but Ollama runs as its OWN user and needs to write the models dir. The chown
+# above just re-took it, so hand it back here (must be the LAST chown to win).
+# Otherwise Ollama fails to start once OLLAMA_MODELS points at this dir.
+chown -R ollama:ollama "$INSTALL_DIR/models" 2>/dev/null || true
 success "Files installed"
 
 # ── GPU detection and driver install ─────────────────────────────────────────
