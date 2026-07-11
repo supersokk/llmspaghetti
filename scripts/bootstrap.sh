@@ -238,7 +238,11 @@ cat > /etc/caddy/Caddyfile << 'EOF'
 EOF
 
 mkdir -p /var/log/caddy
-systemctl enable --now caddy
+# The caddy apt package already started caddy with its DEFAULT welcome config, so
+# `enable --now` is a no-op and our Caddyfile above wouldn't take effect — restart
+# to actually load it (otherwise `/` serves Caddy's welcome page, not the wizard).
+systemctl enable caddy
+systemctl restart caddy
 success "Caddy configured"
 
 # ── Install systemd services ──────────────────────────────────────────────────
