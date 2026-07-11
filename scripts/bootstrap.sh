@@ -13,7 +13,15 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Where are we running from? A repo checkout gives a real BASH_SOURCE; a piped
+# install (`curl … | sudo bash`) has none — and under `set -u` referencing it
+# aborts. Handle both: fall back to an empty SCRIPT_DIR and self-clone below.
+SCRIPT_SRC="${BASH_SOURCE[0]:-}"
+if [[ -n "$SCRIPT_SRC" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SRC")" && pwd)"
+else
+  SCRIPT_DIR=""
+fi
 INSTALL_DIR="/opt/llmspaghetti"
 LLMSPAGHETTI_USER="llmspaghetti"
 
@@ -40,6 +48,27 @@ apt-get install -y -qq \
   net-tools iproute2 htop \
   nano less bc aria2
 success "System updated"
+
+# ── Fetch source if piped in (curl | bash) or not run from a repo checkout ────
+# The install copies files from the repo (router/, config/, spagdesk/, …), so if
+# we don't have them alongside us, clone the repo (git is installed just above)
+# and point SCRIPT_DIR at it. A local checkout run as `sudo bash scripts/bootstrap.sh`
+# skips this entirely.
+REPO_URL="${LLMSPAGHETTI_REPO:-https://github.com/supersokk/llmspaghetti}"
+REPO_REF="${LLMSPAGHETTI_REF:-main}"
+if [[ -z "$SCRIPT_DIR" || ! -d "$SCRIPT_DIR/../router" ]]; then
+  step "Fetching LLMSpaghetti source"
+  SRC_DIR="/opt/llmspaghetti-src"
+  if [[ -d "$SRC_DIR/.git" ]]; then
+    git -C "$SRC_DIR" fetch --depth 1 origin "$REPO_REF" \
+      && git -C "$SRC_DIR" reset --hard "origin/$REPO_REF"
+  else
+    rm -rf "$SRC_DIR"
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$SRC_DIR"
+  fi
+  SCRIPT_DIR="$SRC_DIR/scripts"
+  success "Source ready at $SRC_DIR"
+fi
 
 # ── Create service user and directories ──────────────────────────────────────
 step "Creating LLMSpaghetti user and directories"
