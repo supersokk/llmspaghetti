@@ -183,7 +183,13 @@ Environment="OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-6}"
 Environment="OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1}"
 EOF
 systemctl daemon-reload
-systemctl enable --now ollama
+# Ollama's installer already started ollama.service on the DEFAULT 127.0.0.1 (and
+# default models dir), so `enable --now` is a no-op and our drop-in wouldn't take
+# effect — the router's container then can't reach Ollama ("All connection attempts
+# failed"). Restart to apply OLLAMA_HOST=0.0.0.0 + the models dir BEFORE first-boot
+# pulls any models (so they land in the configured dir).
+systemctl enable ollama
+systemctl restart ollama
 success "Ollama configured and running"
 
 # ── Cockpit (server management UI) ───────────────────────────────────────────
