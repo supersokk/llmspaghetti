@@ -1259,7 +1259,10 @@ def _load_aliases() -> dict:
                 cfg = yaml.safe_load(f) or {}
             _alias_cache = {
                 e.get("model_name"): (e.get("litellm_params") or {}).get("model", "")
-                for e in cfg.get("model_list", [])
+                # `or []` — a fresh no-cloud config has `model_list:` with no items,
+                # which YAML parses as None (not []); the .get default doesn't apply
+                # when the key exists, so guard against None explicitly.
+                for e in (cfg.get("model_list") or [])
                 if e.get("model_name")
             }
             _alias_mtime = mtime
