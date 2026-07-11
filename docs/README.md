@@ -31,6 +31,7 @@ folded into permanent docs once built.
 - [PLANNED-router-model.md](PLANNED-router-model.md) — a community-trained classifier model
 - [PLANNED-private-role.md](PLANNED-private-role.md) — the "private/local" role (paused, needs design)
 - [PLANNED-multi-gpu.md](PLANNED-multi-gpu.md) — multi-GPU model placement, CPU/RAM residency, pin-vs-pool (parts testable on 1 GPU; core deferred to 2-GPU hardware)
+- [PLANNED-multi-node.md](PLANNED-multi-node.md) — core + compute nodes over SSH-push (node join, Cockpit Nodes tab, per-node routing; testable now with the 2060S as node-1)
 
 ## Assets
 
