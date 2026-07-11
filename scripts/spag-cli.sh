@@ -65,14 +65,14 @@ cmd_restart() { info "Restarting..."; systemctl restart llmspaghetti && success 
 cmd_logs() {
   local svc="${1:-}"
   case "$svc" in
-    webui)   $COMPOSE logs -f open-webui ;;
+    router)  $COMPOSE logs -f router ;;
     litellm) $COMPOSE logs -f litellm ;;
     ollama)  journalctl -u ollama -f ;;
     caddy)   journalctl -u caddy -f ;;
     firstboot) tail -f "$INSTALL_DIR/logs/firstboot.log" ;;
     watchdog)  tail -f "$INSTALL_DIR/logs/watchdog.log" ;;
     *)
-      echo "Usage: spag logs [webui|litellm|ollama|caddy|firstboot|watchdog]"
+      echo "Usage: spag logs [router|litellm|ollama|caddy|firstboot|watchdog]"
       echo "Showing all Docker logs:"
       $COMPOSE logs -f
       ;;
@@ -177,11 +177,11 @@ cmd_doctor() {
   check "Ollama installed"         "command -v ollama"
   check "Ollama running"           "systemctl is-active ollama"
   check "Caddy running"            "systemctl is-active caddy"
-  check "Open WebUI container"     "docker inspect llmspaghetti-webui"
+  check "Router container"         "docker inspect llmspaghetti-router"
   check "LiteLLM container"        "docker inspect llmspaghetti-litellm"
   check "Config file exists"       "test -f /opt/llmspaghetti/config/litellm_config.yaml"
   check "First-boot complete"      "test -f /opt/llmspaghetti/.firstboot-complete"
-  check "Network reachable"        "curl -sf --max-time 3 http://localhost:3000"
+  check "Router reachable"         "curl -sf --max-time 3 http://localhost:5000/health"
   check "LiteLLM reachable"        "curl -sf --max-time 3 http://localhost:4000/health"
 
   echo ""
@@ -247,7 +247,7 @@ cmd_menu() {
         read -rp "  Press Enter to continue…" _
         ;;
       5)
-        echo -e "  Services: ${CYAN}webui  litellm  ollama  caddy  firstboot  watchdog${RESET}"
+        echo -e "  Services: ${CYAN}router  litellm  ollama  caddy  firstboot  watchdog${RESET}"
         read -rp "  Service name (or Enter for all): " svc
         cmd_logs "${svc:-}"
         read -rp "  Press Ctrl+C to stop tailing, then Enter to return…" _
@@ -395,7 +395,7 @@ print('Export written to $EXPORT')
     echo "    gpu                Show GPU detection info"
     echo ""
     echo -e "  ${BOLD}Maintenance${RESET}"
-    echo "    logs [service]     Tail logs  (webui|litellm|ollama|caddy)"
+    echo "    logs [service]     Tail logs  (router|litellm|ollama|caddy)"
     echo "    update             Pull latest images and restart"
     echo "    doctor             Run health checks"
     echo "    reset-firstboot    Re-run the setup wizard"

@@ -36,7 +36,7 @@
 
   <a id="enter-btn" href="http://{{ ip }}" class="btn btn-primary"
      style="font-size:1rem;padding:0.9rem 2rem;opacity:0.55;pointer-events:none">
-    Waiting for Open WebUI…
+    Waiting for the router…
   </a>
   <div id="enter-hint" class="hint" style="margin-top:0.5rem">
     You can wait here — this page moves you in automatically when the chat is ready.
@@ -59,7 +59,7 @@
       const res = await fetch('/api/status');
       data = await res.json();
     } catch (e) {
-      // Wizard likely stopped because Open WebUI took over — hand off.
+      // Wizard stopped (setup complete, firstboot service exits) — hand off to SpagDesk.
       if (!redirected) { redirected = true; location.href = `http://${IP}`; }
       return;
     }
