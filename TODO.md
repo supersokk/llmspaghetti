@@ -142,9 +142,11 @@ Full design → [PLANNED-multi-node.md](docs/PLANNED-multi-node.md).
   optional `CORE_SSH_KEY`. No Docker/router/web stack.
 - ✅ **Core routing → node** — `config/nodes.yaml` model→node map; router forwards
   to the node's Ollama URL instead of localhost (hot-reloaded; empty = single-box).
-- ☐ **Cockpit "Nodes" tab** — add node, assign models, push installs (ComfyUI/ROCm),
-  model pulls, live status — SSH-targeted, mirrors Services. **← next.** Also
-  makes node models selectable in Routing (no more hand-editing `nodes.yaml`).
+- 🚧 **Cockpit "Nodes" tab** — ✅ add/remove nodes (writes `nodes.yaml`, live
+  reachable + installed status via router `/api/nodes`), ✅ toggle which models a
+  node serves (drives routing), ✅ pull models onto a node via its Ollama
+  `/api/pull` (no SSH), ✅ node models selectable in Routing. ☐ SSH-push software
+  installs (ComfyUI/ROCm) — deferred follow-up.
 - ☐ Core→node SSH key flow (generate keypair, push to node on join)
 - ☐ Optional mDNS node discovery
 - ☐ Load balancing / failover across nodes
