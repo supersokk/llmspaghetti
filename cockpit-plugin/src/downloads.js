@@ -64,6 +64,20 @@ function parseFile(chunk) {
   return { pct: m ? Math.min(100, parseInt(m[1], 10)) : null };
 }
 
+// Node Ollama /api/pull stream → {pct,label}. Emits JSON lines like
+// {"status":"pulling <digest>","total":N,"completed":M}. pct is null on
+// status-only lines so the caller keeps the last known percentage.
+function parseNodePull(chunk) {
+  let pct = null, label = null;
+  for (const ln of chunk.split("\n")) {
+    if (!ln.trim()) continue;
+    let j; try { j = JSON.parse(ln); } catch { continue; }
+    if (j.total && j.completed) pct = Math.min(100, Math.round(j.completed / j.total * 100));
+    if (j.status) label = j.status;
+  }
+  return { pct, label };
+}
+
 export const downloads = {
   active: [],              // [{id, kind:"model"|"file", name, pct, label, phase:"run", startedAt, _proc, _out}]
   history: _loadHistory(), // [{id, kind, name, phase:"done"|"error", msg, endedAt}]  newest first
@@ -123,6 +137,27 @@ export const downloads = {
     proc.then(
       () => this._finish(id, "done", `${modelId} downloaded`),
       (e) => this._finish(id, "error", `Pull failed: ${(e && e.message) || e}`),
+    );
+    return true;
+  },
+
+  // ── Model pull onto a remote node — via the node's Ollama /api/pull (no SSH) ─
+  startNodePull({ nodeId, nodeUrl, model }) {
+    const name = `${model} → ${nodeId}`;   // dedup key: same model can pull on 2 nodes
+    if (this.isActive(name)) return false;
+    const id = _nextId();
+    const cmd = `curl -sN -X POST ${nodeUrl}/api/pull -d '{"model":"${model}"}'`;
+    const proc = _ck.spawn(["bash", "-c", PATHFIX + cmd], { err: "message" });
+    this.active.push({ id, kind: "model", name, node: nodeId, model, pct: null,
+      label: "starting…", phase: "run", startedAt: Date.now(), _proc: proc });
+    this._emit();
+    proc.stream(d => {
+      const p = parseNodePull(d);
+      this._patch(id, { pct: p.pct != null ? p.pct : undefined, label: p.label || undefined });
+    });
+    proc.then(
+      () => this._finish(id, "done",  `${model} pulled onto ${nodeId}`),
+      (e) => this._finish(id, "error", `Pull failed on ${nodeId}: ${(e && e.message) || e}`),
     );
     return true;
   },
