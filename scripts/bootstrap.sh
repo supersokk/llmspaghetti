@@ -56,9 +56,11 @@ success "System updated"
 # skips this entirely.
 REPO_URL="${LLMSPAGHETTI_REPO:-https://github.com/supersokk/llmspaghetti}"
 REPO_REF="${LLMSPAGHETTI_REF:-main}"
+# Persistent source checkout for curl|bash installs — kept so `spag update` can pull
+# and redeploy later. Always defined (used in the completion message below too).
+SRC_DIR="/opt/llmspaghetti-src"
 if [[ -z "$SCRIPT_DIR" || ! -d "$SCRIPT_DIR/../router" ]]; then
   step "Fetching LLMSpaghetti source"
-  SRC_DIR="/opt/llmspaghetti-src"
   if [[ -d "$SRC_DIR/.git" ]]; then
     git -C "$SRC_DIR" fetch --depth 1 origin "$REPO_REF" \
       && git -C "$SRC_DIR" reset --hard "origin/$REPO_REF"
@@ -305,6 +307,10 @@ echo -e "${BOLD}${GREEN}└─────────────────�
 echo ""
 echo -e "  Open ${CYAN}http://${IP}${RESET} in your browser to complete setup."
 echo ""
+if [[ -d "$SRC_DIR/.git" ]]; then
+  echo -e "  To update later:  ${CYAN}sudo spag update${RESET}  (pulls latest code + images from $SRC_DIR)"
+  echo ""
+fi
 
 if [[ -f "$INSTALL_DIR/.needs-reboot" ]]; then
   echo -e "  ${YELLOW}⚠  GPU drivers were installed — a reboot is recommended.${RESET}"
