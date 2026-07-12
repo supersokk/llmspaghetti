@@ -8,7 +8,8 @@
  * (no SSH needed). Writes config/nodes.yaml (the router hot-reloads it).
  *
  * Data comes from the router's /api/nodes (server-side, so node status has no CORS
- * problem). SSH-push installs (ComfyUI/drivers on a node) are a later addition.
+ * problem). SSH control (host-side, as root@node with a core key) adds diagnostics
+ * now — push-installs (GPU drivers/ComfyUI) build on the same channel next.
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { downloads } from "../downloads.js";
@@ -27,8 +28,24 @@ const C = {
 
 const ROUTER_PORT = 5000;
 const NODES_PATH  = "/opt/llmspaghetti/config/nodes.yaml";
+const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
+
+// The core's SSH identity for pushing to nodes (installs run as root@node). One key
+// for all nodes; generated on demand, authorized on each node once (node-bootstrap's
+// CORE_SSH_KEY hook, or the one-liner this tab shows).
+const KEY_PATH = "/opt/llmspaghetti/config/node_ssh_key";
+const PUB_PATH = KEY_PATH + ".pub";
 
 const rget = (path) => cockpit.http(ROUTER_PORT).get(path).then(b => JSON.parse(b || "{}")).catch(() => ({}));
+const run  = (cmd, opts = {}) => cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message", ...opts });
+
+// Ollama URL (http://host:11434) → bare host for SSH.
+const hostFromUrl = (url) => (url || "").replace(/^https?:\/\//, "").replace(/[:/].*$/, "");
+// SSH to a node as root with the core key. accept-new auto-trusts a new LAN host key
+// (avoids an interactive prompt that would hang); BatchMode fails fast if unauthorized.
+const sshBase = (host) =>
+  `ssh -i ${KEY_PATH} -o IdentitiesOnly=yes -o BatchMode=yes ` +
+  `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=6 root@${host}`;
 
 // Serialize nodes → nodes.yaml (matches the router's parser: nodes: [{id,url,models}]).
 function serializeNodes(nodes) {
@@ -65,6 +82,8 @@ export default function Nodes() {
   // survives this tab being unmounted on tab-switch (Cockpit does that) — and
   // node pulls also show up in the Downloads tab.
   const [dl, setDl]         = useState({ active: [], history: [] });
+  const [pubkey, setPubkey] = useState(null);   // core SSH pubkey, "" = none yet, null = loading
+  const [showSsh, setShowSsh] = useState(false);
   const pollRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -73,12 +92,32 @@ export default function Nodes() {
     setLoading(false);
   }, []);
 
+  const loadKey = useCallback(() => {
+    run(`cat ${PUB_PATH} 2>/dev/null || true`).then(k => setPubkey(k.trim())).catch(() => setPubkey(""));
+  }, []);
+
+  // Generate the core's SSH keypair (once) so it can push installs to nodes as root.
+  const genKey = async () => {
+    setBusy(true);
+    try {
+      const k = await run(
+        `install -d -m 700 "$(dirname ${KEY_PATH})" && ` +
+        `ssh-keygen -t ed25519 -N '' -C llmspaghetti-core -f ${KEY_PATH} && ` +
+        `chmod 600 ${KEY_PATH} && cat ${PUB_PATH}`);
+      setPubkey(k.trim());
+      setAlert({ type: "ok", msg: "Core SSH key generated — authorize it on each node (command below)." });
+    } catch (e) {
+      setAlert({ type: "err", msg: `Key generation failed: ${e.message || e}` });
+    } finally { setBusy(false); }
+  };
+
   useEffect(() => {
     load();
+    loadKey();
     pollRef.current = setInterval(load, 10000);   // refresh status
     const unsub = downloads.subscribe(setDl);
     return () => { clearInterval(pollRef.current); unsub(); };
-  }, [load]);
+  }, [load, loadKey]);
 
   // Persist the current node list to nodes.yaml, then reload from the router.
   const save = async (next) => {
@@ -153,6 +192,9 @@ export default function Nodes() {
         Set up a node with <code style={{ color: C.accent2 }}>node-bootstrap.sh</code>.
       </div>
 
+      <SshBanner pubkey={pubkey} show={showSsh} onToggle={() => setShowSsh(v => !v)}
+        onGen={genKey} busy={busy} />
+
       {alert && (
         <div style={{ padding: "0.6rem 0.9rem", borderRadius: 8, marginBottom: "1rem",
                       fontSize: "0.85rem",
@@ -186,6 +228,7 @@ export default function Nodes() {
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           {nodes.map(node => (
             <NodeCard key={node.id} node={node} pull={dl.active.find(j => j.node === node.id)} busy={busy}
+              hasKey={!!pubkey}
               onRemove={() => removeNode(node.id)} onToggle={m => toggleServe(node, m)}
               onPull={m => pullModel(node, m)} />
           ))}
@@ -195,12 +238,22 @@ export default function Nodes() {
   );
 }
 
-function NodeCard({ node, pull, busy, onRemove, onToggle, onPull }) {
+function NodeCard({ node, pull, busy, hasKey, onRemove, onToggle, onPull }) {
   const [pm, setPm] = useState("");
+  const [ssh, setSsh] = useState(null);   // null | "testing" | { ok, out }
   const served = new Set(node.models || []);
   const installed = node.installed || [];
   // Models the node is set to serve but hasn't actually pulled yet — worth flagging.
   const missing = (node.models || []).filter(m => !installed.includes(m));
+
+  const host = hostFromUrl(node.url);
+  const testSsh = () => {
+    setSsh("testing");
+    run(sshBase(host) +
+      " 'echo SSHOK; uname -sr; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1; ollama --version 2>/dev/null | head -1'")
+      .then(out => setSsh({ ok: out.includes("SSHOK"), out: out.trim() }))
+      .catch(e   => setSsh({ ok: false, out: (e && e.message) || String(e) }));
+  };
 
   return (
     <div style={{ ...card, borderColor: node.reachable ? C.green + "40" : C.red + "40" }}>
@@ -270,6 +323,77 @@ function NodeCard({ node, pull, busy, onRemove, onToggle, onPull }) {
             style={btn(C.accent, "#fff")}>↓ Pull</button>
         </div>
       )}
+
+      {/* SSH control — diagnostics now; push-installs land here next */}
+      <div style={{ marginTop: "0.85rem", paddingTop: "0.7rem", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <span style={{ fontSize: "0.72rem", color: C.dim, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            SSH control
+          </span>
+          <button onClick={testSsh} disabled={!hasKey || ssh === "testing"}
+            style={{ ...btn(C.surface2, C.text), border: `1px solid ${C.border}`,
+                     opacity: hasKey ? 1 : 0.5, cursor: hasKey ? "pointer" : "not-allowed" }}>
+            {ssh === "testing" ? "Testing…" : "Test SSH"}
+          </button>
+          {ssh && ssh !== "testing" && (
+            <span style={{ fontSize: "0.75rem", color: ssh.ok ? C.green : C.red }}>
+              {ssh.ok ? "✓ connected" : "✗ failed"}
+            </span>
+          )}
+        </div>
+        {!hasKey && (
+          <div style={{ fontSize: "0.75rem", color: C.dim, marginTop: 5 }}>
+            Generate a core key (🔑 SSH control, top) and authorize it on this node to enable push-installs.
+          </div>
+        )}
+        {ssh && ssh !== "testing" && (
+          <pre style={{ ...preBox, marginTop: 6, color: ssh.ok ? C.dim : C.red }}>{ssh.out || "(no output)"}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SshBanner({ pubkey, show, onToggle, onGen, busy }) {
+  const authorizeCmd = pubkey
+    ? `sudo install -d -m700 /root/.ssh && echo '${pubkey}' | sudo tee -a /root/.ssh/authorized_keys >/dev/null && sudo chmod 600 /root/.ssh/authorized_keys`
+    : "";
+  return (
+    <div style={{ ...card, marginBottom: "1rem", padding: "0.7rem 1rem" }}>
+      <div onClick={onToggle}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+        <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+          🔑 SSH control{" "}
+          {pubkey
+            ? <span style={{ color: C.green, fontWeight: 400 }}>· key ready</span>
+            : <span style={{ color: C.dim,   fontWeight: 400 }}>· no key yet</span>}
+        </span>
+        <span style={{ color: C.dim }}>{show ? "▾" : "▸"}</span>
+      </div>
+      {show && (
+        <div style={{ marginTop: "0.7rem", fontSize: "0.82rem", color: C.dim, lineHeight: 1.5 }}>
+          The core pushes installs to nodes as <code style={{ color: C.accent2 }}>root</code> over SSH.
+          Generate one key here, then authorize it on each node once.
+          {pubkey === "" && (
+            <div style={{ marginTop: 8 }}>
+              <button onClick={onGen} disabled={busy} style={btn(C.accent, "#fff")}>Generate core SSH key</button>
+            </div>
+          )}
+          {pubkey && (
+            <>
+              <div style={{ marginTop: 10, color: C.text, fontWeight: 600, fontSize: "0.75rem" }}>Core public key</div>
+              <pre style={preBox}>{pubkey}</pre>
+              <div style={{ marginTop: 10, color: C.text, fontWeight: 600, fontSize: "0.75rem" }}>
+                Run once on each node (as a sudo user) to authorize the core:
+              </div>
+              <pre style={preBox}>{authorizeCmd}</pre>
+              <div style={{ marginTop: 6, fontSize: "0.75rem" }}>
+                …or set up the node with <code style={{ color: C.accent2 }}>CORE_SSH_KEY=…</code> and it's authorized from the start.
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -281,6 +405,9 @@ const card  = { background: C.surface, border: `1px solid ${C.border}`, borderRa
 const input = { background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6,
                 padding: "0.4rem 0.6rem", fontSize: "0.85rem", fontFamily: "inherit", outline: "none", marginTop: 4 };
 const pill  = { borderRadius: 16, padding: "0.22rem 0.6rem", fontSize: "0.76rem", fontWeight: 600, fontFamily: "monospace" };
+const preBox = { marginTop: 4, padding: "0.5rem 0.6rem", background: C.bg, border: `1px solid ${C.border}`,
+                 borderRadius: 6, fontSize: "0.72rem", color: C.text, whiteSpace: "pre-wrap",
+                 wordBreak: "break-all", overflowX: "auto", fontFamily: "monospace" };
 function btn(bg, color) {
   return { background: bg, color, border: "none", borderRadius: 7, padding: "0.4rem 0.8rem",
            fontSize: "0.82rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 };
