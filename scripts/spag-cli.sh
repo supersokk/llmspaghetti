@@ -7,6 +7,12 @@ INSTALL_DIR="/opt/llmspaghetti"
 COMPOSE="docker compose -f $INSTALL_DIR/docker-compose.yml"
 VERSION="0.1.0"
 
+# Source checkout the installer leaves behind (curl|bash clones here and keeps it).
+# `spag update` pulls it and redeploys our code. Overridable if you installed from
+# your own clone elsewhere.
+SRC_DIR="${LLMSPAGHETTI_SRC:-/opt/llmspaghetti-src}"
+REPO_REF="${LLMSPAGHETTI_REF:-main}"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 
@@ -119,11 +125,46 @@ cmd_comfyui() {
 
 cmd_update() {
   require_root update
-  info "Pulling latest images..."
+
+  # 1. Update our own code from the source checkout, then redeploy it. This is the
+  #    piece that was missing: `spag update` used to pull only the container images
+  #    (cloud providers), never the router / Cockpit plugin / SpagDesk / scripts,
+  #    which live in the git source and are copied into $INSTALL_DIR.
+  if [[ -d "$SRC_DIR/.git" ]]; then
+    info "Updating source at $SRC_DIR ($REPO_REF)..."
+    # Shallow-clone-safe + robust against local dirt (e.g. an untracked
+    # package-lock.json): fetch the ref and hard-reset instead of `git pull`.
+    if git -C "$SRC_DIR" fetch --depth 1 origin "$REPO_REF" \
+        && git -C "$SRC_DIR" reset --hard "origin/$REPO_REF"; then
+
+      info "Redeploying router, SpagDesk, scripts..."
+      cp -r "$SRC_DIR/router"            "$INSTALL_DIR/"                    # bind-mounted → restart picks it up
+      cp    "$SRC_DIR/spagdesk/index.html" "$INSTALL_DIR/spagdesk/index.html" 2>/dev/null || true
+      cp    "$SRC_DIR"/scripts/*.sh      "$INSTALL_DIR/scripts/"           2>/dev/null || true
+
+      info "Rebuilding Cockpit plugin..."
+      bash "$SRC_DIR/scripts/install-terminal.sh" || warn "Cockpit plugin rebuild failed — retry with: spag install-terminal"
+
+      # Refresh the CLI itself last, via atomic rename so this running script's
+      # inode is untouched (cp would truncate-in-place and can corrupt a live run).
+      install -m 0755 "$SRC_DIR/scripts/spag-cli.sh"      /usr/local/bin/spag                 2>/dev/null || true
+      install -m 0755 "$SRC_DIR/scripts/spag-watchdog.sh" /usr/local/bin/llmspaghetti-watchdog 2>/dev/null || true
+      success "Code updated"
+    else
+      warn "Could not update $SRC_DIR — skipping code redeploy, updating images only"
+    fi
+  else
+    warn "No source checkout at $SRC_DIR — updating container images only."
+    warn "To enable code updates: git clone https://github.com/supersokk/llmspaghetti $SRC_DIR"
+  fi
+
+  # 2. Pull the cloud/service container images and restart the stack (also picks up
+  #    the freshly-copied bind-mounted router code).
+  info "Pulling latest container images..."
   $COMPOSE pull
   info "Restarting stack..."
   systemctl restart llmspaghetti
-  success "Update complete"
+  success "Update complete — hard-refresh the browser (Ctrl+Shift+R) for Cockpit + SpagDesk"
 }
 
 cmd_config() {
