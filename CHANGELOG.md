@@ -8,6 +8,41 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-12 — Multi-node: core + GPU compute nodes)
+
+- **Split the CPU core from GPU compute nodes.** A low-power box runs the "core"
+  (router, LiteLLM, Caddy, Cockpit, SpagDesk); separate GPU boxes run only Ollama.
+  The core classifies each message and forwards it to the node that serves that
+  model, over the LAN. **Proven end-to-end 2026-07-12:** an EliteBook (CPU) routed a
+  coding question to a 2060S GPU node — inference ran on the GPU, streamed back.
+- **`scripts/node-bootstrap.sh`** — one-command node install: GPU drivers
+  (NVIDIA / AMD-Vulkan / CPU) + Ollama exposed on `0.0.0.0:11434`. No Docker, router,
+  Cockpit, or web stack — all resources go to models. Self-clones for `curl | bash`;
+  optional `CORE_SSH_KEY` authorizes the core to push installs over SSH later.
+- **`config/nodes.yaml`** — node registry (`{id, url, models:[…]}`). A model listed
+  under a node routes to that node's Ollama instead of localhost; hot-reloaded by the
+  router. Empty = single-box mode (existing installs unchanged). Design:
+  docs/PLANNED-multi-node.md (SSH-push control model).
+
+### Fixed (2026-07-12 — fresh-install hardening)
+
+Surfaced by a clean minimal-server install (upgraded boxes never hit these):
+
+- **Caddy / Ollama config never applied** — both are apt-started before their config
+  is written, so `enable --now` was a no-op. Now `restart` after writing the config
+  (else `/` served Caddy's welcome page instead of the wizard, and the router
+  couldn't reach Ollama on `127.0.0.1`).
+- **Empty `model_list` crash** — a no-cloud config parsed `model_list:` as `None`,
+  crashing routing (`TypeError: 'NoneType' object is not iterable`) so every message
+  fell through to LiteLLM as `model=auto`. Guarded, and first-boot writes
+  `model_list: []`.
+- **Ollama models dir owned by the wrong user** — a later `chown` clobbered the
+  ollama ownership, so Ollama crashed once `OLLAMA_MODELS` pointed at it.
+- **nouveau not blacklisted** — NVRM spammed "GPU already bound to nouveau" and fell
+  back to CPU; now blacklisted + initramfs rebuilt explicitly.
+- **`curl | bash` bootstrap** — self-clones the repo (was `BASH_SOURCE: unbound`).
+- Dropped stale Open WebUI references (done page, `spag doctor`, logs, status).
+
 ### Added (2026-07-06 — SpagDesk: concurrent (non-blocking) chat)
 
 - **SpagDesk no longer serialises requests.** A slow image (`//image clown`, ~20s)
