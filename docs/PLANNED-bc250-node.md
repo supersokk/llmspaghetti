@@ -37,6 +37,20 @@ and disables ZRAM. It does **not** touch Ollama or any LLM stack — that's our 
   reimplement — it will drift, and they know the hardware.
 - Goal is **max resources to models**: minimal/headless CachyOS, no desktop.
 
+## Version requirements (BC-250 GPU)
+
+The community pins these for the cyan-skillfish GPU to drive properly — a version
+outside them **silently kills the GPU and falls back to CPU**, the one failure a
+compute node can't have. The bootstrap should check `glxinfo`/`vulkaninfo` (Mesa)
+and `uname -r` (kernel) and **warn loudly** if outside range.
+
+- **Mesa** — **25.1.3+ minimum, 25.1.5+ recommended** for proper RADV (Vulkan) support.
+- **Kernel** — **AVOID 6.15.0–6.15.6 and 6.17.8–6.17.10** (known GPU driver failures).
+  Use **6.18.18 LTS (recommended)**, 6.19.x stable, or 6.17.11+.
+
+CachyOS ships bleeding-edge Mesa + kernels, so it *probably* satisfies both — but
+"probably" isn't good enough for the GPU, so check explicitly on the actual image.
+
 ## The runbook (who does what)
 
 1. **You — CachyOS + Limine, minimal/headless.** CachyOS's tested target is the
@@ -61,11 +75,15 @@ fresh-install lessons. Installs **only** Ollama, LAN-exposed:
   `OLLAMA_KEEP_ALIVE=-1`. **`systemctl restart ollama`** after writing it (not
   `enable --now`), and **chown the models dir to the `ollama` user** — the two bugs
   the Ubuntu fresh install taught us (#29, #30).
-- **GPU backend — the big unknown.** The BC-250 GPU is Mesa under CachyOS, so
-  **Vulkan (our AMD-Vulkan approach) is the likely path** — but *nobody has confirmed
-  Ollama-Vulkan actually offloads on cyan skillfish.* First hardware task: check
-  `vulkaninfo` sees the GPU and `ollama ps` shows `100% GPU` on a request. If Vulkan
-  doesn't offload, fall back to ROCm (heavier) or CPU. Do **not** assume it works.
+- **GPU backend — Vulkan via Mesa RADV** (our AMD-Vulkan path). The community
+  confirms RADV drives the cyan-skillfish GPU **given a new-enough Mesa + kernel**
+  (see [Version requirements](#version-requirements-bc-250-gpu) below), so this is
+  the intended path — not the open question it first looked like. Remaining hardware
+  verify: that **Ollama** actually offloads via Vulkan (`vulkaninfo` sees the GPU,
+  `ollama ps` shows `100% GPU` on a request). If it doesn't, fall back to ROCm
+  (heavier) or CPU. The bootstrap should **check Mesa + kernel versions and warn**
+  before trusting the GPU (a bad version silently drops to CPU — the one failure a
+  compute node can't have).
 - **Optional `CORE_SSH_KEY`** — authorize the core to push installs over SSH (same
   hook as `node-bootstrap.sh`).
 - Print the node IP + "register it on the core."
@@ -74,8 +92,10 @@ We do **not** duplicate the CU unlock, governors, or swap — the toolkit owns t
 
 ## Open questions / to verify on hardware
 
-- **Ollama GPU offload on cyan skillfish** — Vulkan vs ROCm vs CPU. The whole point
-  of the board; verify first.
+- **Ollama GPU offload on cyan skillfish** — RADV/Vulkan is the intended path (with
+  the Mesa + kernel versions above); confirm **Ollama** actually uses it (`ollama ps`
+  → `100% GPU`), and that the CachyOS image's Mesa/kernel are in range. The whole
+  point of the board; verify first.
 - **CachyOS headless install** — which install path yields a clean no-DE base for a
   compute node.
 - **Ollama on CachyOS** — `pacman` package vs `ollama-bin` (AUR) vs the upstream
