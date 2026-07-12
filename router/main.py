@@ -37,6 +37,7 @@ QUOTAS_PATH      = INSTALL_DIR / "config" / "quotas.yaml"
 QUOTA_STATE_PATH = INSTALL_DIR / "data"   / "quota_state.json"
 MCP_CONFIG_PATH  = INSTALL_DIR / "config" / "mcp.json"
 ROLE_TOOLS_PATH  = INSTALL_DIR / "config" / "role_tools.yaml"
+NODES_PATH       = INSTALL_DIR / "config" / "nodes.yaml"  # multi-node registry (compute nodes)
 API_KEYS_PATH    = INSTALL_DIR / "config" / "api_keys.env"
 IMAGE_CFG_PATH     = INSTALL_DIR / "config" / "image.yaml"
 IMAGE_ENGINES_PATH = INSTALL_DIR / "config" / "image-engines.yaml"
@@ -1278,21 +1279,70 @@ def _resolve_model_name(model: str) -> str:
     return real.split("/", 1)[1] if "/" in real else real
 
 
+# ── Compute nodes (multi-node) ────────────────────────────────────────────────
+# config/nodes.yaml lists remote Ollama nodes and which models each serves. When a
+# local model is served by a node, the router forwards it to that node's Ollama
+# instead of localhost. Empty/absent → single-box mode (everything local). See
+# docs/PLANNED-multi-node.md.
+_nodes_cache: list  = []
+_nodes_mtime: float = 0.0
+_node_clients: dict[str, "httpx.AsyncClient"] = {}  # base_url → cached client
+
+
+def _load_nodes() -> list:
+    """List of node dicts ({id, url, models:[...]}) from nodes.yaml. mtime-cached;
+    [] when the file is absent or empty (single-box mode)."""
+    global _nodes_cache, _nodes_mtime
+    try:
+        mtime = NODES_PATH.stat().st_mtime
+        if mtime != _nodes_mtime:
+            with open(NODES_PATH) as f:
+                cfg = yaml.safe_load(f) or {}
+            _nodes_cache = cfg.get("nodes") or []
+            _nodes_mtime = mtime
+            log.info(f"loaded {len(_nodes_cache)} compute node(s) from nodes.yaml")
+    except (FileNotFoundError, yaml.YAMLError):
+        _nodes_cache = []
+    return _nodes_cache
+
+
+def _node_url_for_model(model: str) -> str | None:
+    """The Ollama base URL of the node that serves `model`, or None if local."""
+    for node in _load_nodes():
+        if model in (node.get("models") or []) and node.get("url"):
+            return str(node["url"]).rstrip("/")
+    return None
+
+
+def _ollama_backend(model: str):
+    """(client, model) for a bare Ollama model — a remote node if one serves it,
+    else the local Ollama. Node clients are created on demand and cached."""
+    url = _node_url_for_model(model)
+    if not url:
+        return _ollama_client, model
+    client = _node_clients.get(url)
+    if client is None:
+        client = httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(600.0, connect=10.0))
+        _node_clients[url] = client
+    return client, model
+
+
 def _route_backend(model: str):
     """Pick the upstream for a model → (httpx client, model name to forward).
 
     Local Ollama models go straight to Ollama's OpenAI API (raw name, any pulled
-    model works — no alias needed). Cloud/aliased models go through LiteLLM.
+    model works — no alias needed), on a remote node if one serves that model, else
+    localhost. Cloud/aliased models go through LiteLLM.
     """
     if not model:
         return _client, model
     real = _load_aliases().get(model)          # litellm_params.model, or None if not an alias
     target = real or model
     if target.startswith("ollama/"):
-        return _ollama_client, target.split("/", 1)[1]   # Ollama direct, bare tag
+        return _ollama_backend(target.split("/", 1)[1])  # Ollama (node or local), bare tag
     if real is not None or "/" in model:
         return _client, model                  # configured alias or provider-prefixed → LiteLLM
-    return _ollama_client, model               # bare name, no alias → assume local Ollama model
+    return _ollama_backend(model)              # bare name, no alias → Ollama (node or local)
 
 
 def _provenance_enabled() -> bool:
@@ -1397,6 +1447,8 @@ async def lifespan(app: FastAPI):
     await _client.aclose()
     await _ollama_client.aclose()
     await _ext_client.aclose()
+    for _c in _node_clients.values():
+        await _c.aclose()
 
 
 app = FastAPI(title="LLMSpaghetti Router", lifespan=lifespan)
@@ -1553,10 +1605,12 @@ async def api_provider_health(model: str = ""):
     client, fwd = _route_backend(model)
     t0 = time.monotonic()
 
-    if client is _ollama_client:
-        # Local: is Ollama up and is this model installed? Never loads it into VRAM.
+    # Local OR a remote node — both are Ollama; check their own /api/tags.
+    if client is _ollama_client or client in _node_clients.values():
+        # Ollama: is it up and is this model installed? Never loads it into VRAM.
+        ollama_base = str(client.base_url).rstrip("/")
         try:
-            resp = await _ext_client.get(f"{OLLAMA_URL}/api/tags", timeout=8.0)
+            resp = await _ext_client.get(f"{ollama_base}/api/tags", timeout=8.0)
             resp.raise_for_status()
             names = {m.get("name", "") for m in resp.json().get("models", [])}
             latency = round((time.monotonic() - t0) * 1000)

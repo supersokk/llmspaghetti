@@ -1,0 +1,20 @@
+# LLMSpaghetti — compute nodes (multi-node)
+# Managed by the Nodes panel (or edit here). See docs/PLANNED-multi-node.md.
+#
+# Each node runs Ollama exposed on the LAN (node-bootstrap.sh). A model listed
+# under a node is served THERE — the router forwards that model to the node's
+# Ollama instead of localhost. A model not under any node uses the local Ollama.
+#
+# Empty list = single-box mode (everything on the local Ollama). Default.
+#
+# Example (a GPU node serving the coder + a chat model):
+#   nodes:
+#     - id: node1
+#       url: http://10.22.22.163:11434
+#       models:
+#         - qwen2.5-coder:3b
+#         - gemma2:2b
+#       # ssh_user: root          # (for the Nodes tab's SSH-push installs, later)
+#       # comfyui: http://10.22.22.163:8188   # if this node runs an image engine
+
+nodes: []
