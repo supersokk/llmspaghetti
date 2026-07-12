@@ -148,6 +148,10 @@ Full design → [PLANNED-multi-node.md](docs/PLANNED-multi-node.md).
 - ☐ Core→node SSH key flow (generate keypair, push to node on join)
 - ☐ Optional mDNS node discovery
 - ☐ Load balancing / failover across nodes
+- ☐ **BC-250 node (CachyOS)** — niche Arch-based path for the AMD BC-250 boards;
+  delegates board setup (CU unlock 24→40, governors) to the community bc250-toolkit,
+  we add a thin `pacman` Ollama-node layer. Design →
+  [PLANNED-bc250-node.md](docs/PLANNED-bc250-node.md). Build/verify when a board arrives.
 - ☐ Storage node — deferred until requested
 
 ---
