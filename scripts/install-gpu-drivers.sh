@@ -54,8 +54,18 @@ install_cuda() {
       || error "Could not install an NVIDIA driver. Try manually: sudo ubuntu-drivers install"
   fi
 
+  # Blacklist nouveau so the NVIDIA module can bind the GPU on the next boot. The
+  # driver package usually does this, but on minimal installs it doesn't always
+  # stick — without it NVRM spams "GPU is already bound to nouveau" forever and
+  # Ollama falls back to CPU. Be explicit and rebuild the initramfs.
+  cat > /etc/modprobe.d/blacklist-nouveau.conf << 'NOUVEAU'
+blacklist nouveau
+options nouveau modeset=0
+NOUVEAU
+  update-initramfs -u 2>/dev/null || true
+
   echo "NVIDIA driver" >> /opt/llmspaghetti/.needs-reboot
-  success "NVIDIA driver installed (reboot required)"
+  success "NVIDIA driver installed — nouveau blacklisted (reboot required)"
 }
 
 # ── AMD ROCm ─────────────────────────────────────────────────────────────────
