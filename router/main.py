@@ -1540,6 +1540,34 @@ async def api_routing_mode():
     })
 
 
+@app.get("/api/nodes")
+async def api_nodes():
+    """Compute nodes from nodes.yaml, each with live status: is its Ollama
+    reachable, and which models are actually installed there (its /api/tags).
+    The Cockpit Nodes tab renders from this (server-side so there's no CORS)."""
+    out = []
+    for node in _load_nodes():
+        url = str(node.get("url", "")).rstrip("/")
+        entry = {
+            "id":       node.get("id") or url,
+            "url":      url,
+            "models":   list(node.get("models") or []),   # models this node SERVES (routing)
+            "reachable": False,
+            "installed": [],                               # models actually pulled on the node
+        }
+        if url:
+            try:
+                r = await _ext_client.get(f"{url}/api/tags", timeout=5.0)
+                r.raise_for_status()
+                entry["installed"] = sorted(
+                    m.get("name", "") for m in r.json().get("models", []) if m.get("name"))
+                entry["reachable"] = True
+            except Exception:
+                pass
+        out.append(entry)
+    return JSONResponse({"nodes": out})
+
+
 @app.get("/api/quota-status")
 async def api_quota_status():
     qcfg  = _load_quotas()

@@ -630,9 +630,11 @@ export default function Routing() {
       rget("/v1/models").then(res => (res.data || []).map(m => m.id).filter(Boolean)).catch(() => []),
       run("ollama list 2>/dev/null | tail -n +2 | awk '{print $1}'")
         .then(raw => raw.split("\n").filter(Boolean)).catch(() => []),
-    ]).then(([aliases, ollama]) => {
+      // Models served by remote compute nodes (Nodes tab) — routable by name too.
+      rget("/api/nodes").then(res => (res.nodes || []).flatMap(n => n.models || [])).catch(() => []),
+    ]).then(([aliases, ollama, nodeModels]) => {
       const seen = new Set(), merged = [];
-      for (const m of [...aliases, ...ollama])
+      for (const m of [...aliases, ...ollama, ...nodeModels])
         if (m && !seen.has(m) && !LEGACY_ALIASES.has(m)) { seen.add(m); merged.push(m); }
       setAvail(merged);
     });
