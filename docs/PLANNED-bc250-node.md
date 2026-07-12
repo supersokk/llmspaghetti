@@ -1,11 +1,18 @@
 # PLANNED — AMD BC-250 compute node (CachyOS)
 
-**Status:** design only — **unverified until a board is in hand.** The BC-250 is a
-niche path on purpose: it runs a *different distro* (CachyOS, not Ubuntu) because
-that's where the community reverse-engineered the board. This doc writes down the
-plan so it's ready; the actual `bc250-node-bootstrap.sh` gets written and tested on
-real hardware. Fits the multi-node design ([PLANNED-multi-node.md](PLANNED-multi-node.md))
-as node2/node3.
+**Status:** design. The **platform is community-proven** — the
+[BC-250 wiki](https://elektricm.github.io/amd-bc250-docs/) documents it as *"a
+low-cost home AI server (Ollama + Vulkan inference up to 35B MoE models)"* (ref
+build: `akandr/bc250`). So the big risk — *does Ollama offload on cyan skillfish?* —
+is **retired: yes, via Vulkan/RADV.** What's unbuilt is **our thin node layer**
+(`bc250-node-bootstrap.sh`) + its place in the multi-node runbook, written and
+verified on real hardware. It's a niche path on purpose (a *different distro*,
+because that's where the community cracked the board). Fits
+[PLANNED-multi-node.md](PLANNED-multi-node.md) as node2/node3.
+
+**Authoritative reference: <https://elektricm.github.io/amd-bc250-docs/>** — a full
+BC-250 wiki. This doc is the *LLMSpaghetti-node plan*; the wiki is the source of
+truth for board/BIOS/driver steps. Don't duplicate it — follow it.
 
 ---
 
@@ -51,6 +58,22 @@ and `uname -r` (kernel) and **warn loudly** if outside range.
 CachyOS ships bleeding-edge Mesa + kernels, so it *probably* satisfies both — but
 "probably" isn't good enough for the GPU, so check explicitly on the actual image.
 
+## Hardware & install gotchas (from the wiki — follow it, don't trust memory)
+
+- **Unified memory** — 16GB GDDR6 *shared* between CPU and GPU (APU-style). BIOS
+  sets a **512MB dynamic VRAM allocation** (P3.00 BIOS recommended); "dynamic" means
+  the GPU grows into system RAM as needed — that's how up-to-35B-MoE fits.
+- **`nomodeset` during OS install**, then **remove it once the Mesa/kernel/RADV
+  drivers are installed.** Easy to forget; skipping the removal will bite first boot.
+- **BIOS** — P3.00 recommended (flash procedure: wiki `bios/flashing/`).
+- **Power/thermal** — TDP **220W (~50W idle → 235W max)**; needs a **300W+ 12V PSU
+  with an 8-pin PCIe** and a **high-static-pressure fan** (passive miner card). The
+  community governors cut idle draw further.
+- **Distro** — the wiki's default recommendation is actually **Fedora 43** (then
+  Bazzite, CachyOS, Arch, Debian). We're going **CachyOS** to match the
+  `bc250-toolkit`'s tested target — but Fedora 43 is a viable fallback if CachyOS
+  headless proves painful (the wiki has a `fedora/` setup page).
+
 ## The runbook (who does what)
 
 1. **You — CachyOS + Limine, minimal/headless.** CachyOS's tested target is the
@@ -75,15 +98,13 @@ fresh-install lessons. Installs **only** Ollama, LAN-exposed:
   `OLLAMA_KEEP_ALIVE=-1`. **`systemctl restart ollama`** after writing it (not
   `enable --now`), and **chown the models dir to the `ollama` user** — the two bugs
   the Ubuntu fresh install taught us (#29, #30).
-- **GPU backend — Vulkan via Mesa RADV** (our AMD-Vulkan path). The community
-  confirms RADV drives the cyan-skillfish GPU **given a new-enough Mesa + kernel**
-  (see [Version requirements](#version-requirements-bc-250-gpu) below), so this is
-  the intended path — not the open question it first looked like. Remaining hardware
-  verify: that **Ollama** actually offloads via Vulkan (`vulkaninfo` sees the GPU,
-  `ollama ps` shows `100% GPU` on a request). If it doesn't, fall back to ROCm
-  (heavier) or CPU. The bootstrap should **check Mesa + kernel versions and warn**
-  before trusting the GPU (a bad version silently drops to CPU — the one failure a
-  compute node can't have).
+- **GPU backend — Vulkan via Mesa RADV, CONFIRMED working.** The wiki documents
+  Ollama+Vulkan inference on the board (up to 35B MoE), so our AMD-Vulkan path is
+  right and ROCm isn't needed (no ROCm path documented). Requirements: Mesa + kernel
+  in range (see [Version requirements](#version-requirements-bc-250-gpu)) + RADV env
+  config (wiki `drivers/environment/`). The bootstrap should still **check Mesa +
+  kernel and warn** (a bad version silently drops to CPU — the one failure a compute
+  node can't have), and confirm `ollama ps` shows `100% GPU` on first run.
 - **Optional `CORE_SSH_KEY`** — authorize the core to push installs over SSH (same
   hook as `node-bootstrap.sh`).
 - Print the node IP + "register it on the core."
@@ -92,10 +113,10 @@ We do **not** duplicate the CU unlock, governors, or swap — the toolkit owns t
 
 ## Open questions / to verify on hardware
 
-- **Ollama GPU offload on cyan skillfish** — RADV/Vulkan is the intended path (with
-  the Mesa + kernel versions above); confirm **Ollama** actually uses it (`ollama ps`
-  → `100% GPU`), and that the CachyOS image's Mesa/kernel are in range. The whole
-  point of the board; verify first.
+- **RADV env config for compute** — the wiki's `drivers/environment/` page has RADV
+  env vars; find which ones Ollama needs (e.g. forcing the right GPU / RADV options)
+  and bake them into the Ollama systemd drop-in. (Ollama-Vulkan offload itself is
+  already confirmed working — just get the env right.)
 - **CachyOS headless install** — which install path yields a clean no-DE base for a
   compute node.
 - **Ollama on CachyOS** — `pacman` package vs `ollama-bin` (AUR) vs the upstream
@@ -108,7 +129,12 @@ We do **not** duplicate the CU unlock, governors, or swap — the toolkit owns t
 
 ## References
 
-- Toolkit: <https://github.com/redbeard1083/bc250-toolkit>
-- CU unlock: <https://github.com/WinnieLV/bc250-cu-live-manager>
+- **BC-250 wiki (authoritative):** <https://elektricm.github.io/amd-bc250-docs/>
+  — key pages when building: `linux/cachyos/`, `linux/mesa/`, `linux/kernel/`,
+  `drivers/radv/` + `drivers/environment/` (RADV env vars for compute),
+  `system/40cu-unlock/`, `bios/vram/` + `bios/flashing/`, `governor/`.
+- Reference "AI server" build: `akandr/bc250` (Ollama + Vulkan up to 35B MoE).
+- Toolkit (governors/swap/profiles): <https://github.com/redbeard1083/bc250-toolkit>
+- CU unlock 24→40: <https://github.com/WinnieLV/bc250-cu-live-manager>
 - CPU governor: <https://github.com/bc250-collective/bc250_smu_oc>
 - GPU governor: <https://github.com/filippor/cyan-skillfish-governor>
