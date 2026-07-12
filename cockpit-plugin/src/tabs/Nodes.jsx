@@ -11,6 +11,7 @@
  * problem). SSH-push installs (ComfyUI/drivers on a node) are a later addition.
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { downloads } from "../downloads.js";
 
 const cockpit = window.cockpit || {
   spawn: () => ({ stream: () => {}, then: (f) => { f(""); return { catch: () => {} }; }, catch: () => {}, close: () => {} }),
@@ -24,7 +25,6 @@ const C = {
   red: "#f85149", text: "#e6edf3", dim: "#8b949e", purple: "#bc8cff",
 };
 
-const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
 const ROUTER_PORT = 5000;
 const NODES_PATH  = "/opt/llmspaghetti/config/nodes.yaml";
 
@@ -61,7 +61,10 @@ export default function Nodes() {
   const [alert, setAlert]   = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm]     = useState({ id: "", url: "" });
-  const [pull, setPull]     = useState({});   // {nodeUrl: {model, pct, status}}
+  // Pull progress lives in the shared, module-level downloads manager so it
+  // survives this tab being unmounted on tab-switch (Cockpit does that) — and
+  // node pulls also show up in the Downloads tab.
+  const [dl, setDl]         = useState({ active: [], history: [] });
   const pollRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -73,7 +76,8 @@ export default function Nodes() {
   useEffect(() => {
     load();
     pollRef.current = setInterval(load, 10000);   // refresh status
-    return () => clearInterval(pollRef.current);
+    const unsub = downloads.subscribe(setDl);
+    return () => { clearInterval(pollRef.current); unsub(); };
   }, [load]);
 
   // Persist the current node list to nodes.yaml, then reload from the router.
@@ -118,27 +122,23 @@ export default function Nodes() {
     await save(next);
   };
 
-  // Pull a model onto a node via its Ollama /api/pull (streamed JSON progress).
+  // Pull a model onto a node — handed to the shared manager so progress persists
+  // across tab switches (and appears in the Downloads tab).
   const pullModel = (node, model) => {
     model = model.trim();
     if (!model) return;
-    setPull(p => ({ ...p, [node.url]: { model, pct: null, status: "starting…" } }));
-    const cmd = `curl -sN -X POST ${node.url}/api/pull -d '{"model":"${model}"}'`;
-    const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { err: "message" });
-    proc.stream(d => {
-      for (const ln of d.split("\n").filter(Boolean)) {
-        let j; try { j = JSON.parse(ln); } catch { continue; }
-        const pct = (j.total && j.completed) ? Math.round(j.completed / j.total * 100) : null;
-        setPull(p => ({ ...p, [node.url]: { model, pct: pct != null ? pct : (p[node.url] || {}).pct, status: j.status || "…" } }));
-      }
-    });
-    proc.then(
-      () => { setPull(p => { const n = { ...p }; delete n[node.url]; return n; });
-              setAlert({ type: "ok", msg: `${model} pulled onto ${node.id}` }); load(); },
-      (e) => { setPull(p => { const n = { ...p }; delete n[node.url]; return n; });
-               setAlert({ type: "err", msg: `Pull failed on ${node.id}: ${e.message || e}` }); },
-    );
+    if (!downloads.startNodePull({ nodeId: node.id, nodeUrl: node.url, model }))
+      setAlert({ type: "err", msg: `${model} is already pulling on ${node.id}` });
   };
+
+  // When a node pull finishes (active job count for nodes drops), refresh so the
+  // freshly-pulled model shows up in the node's installed list.
+  const prevNodeJobs = useRef(0);
+  useEffect(() => {
+    const n = dl.active.filter(j => j.node).length;
+    if (n < prevNodeJobs.current) load();
+    prevNodeJobs.current = n;
+  }, [dl, load]);
 
   return (
     <div style={{ color: C.text }}>
@@ -185,7 +185,7 @@ export default function Nodes() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           {nodes.map(node => (
-            <NodeCard key={node.id} node={node} pull={pull[node.url]} busy={busy}
+            <NodeCard key={node.id} node={node} pull={dl.active.find(j => j.node === node.id)} busy={busy}
               onRemove={() => removeNode(node.id)} onToggle={m => toggleServe(node, m)}
               onPull={m => pullModel(node, m)} />
           ))}
@@ -253,7 +253,7 @@ function NodeCard({ node, pull, busy, onRemove, onToggle, onPull }) {
       {pull ? (
         <div style={{ marginTop: "0.4rem" }}>
           <div style={{ fontSize: "0.78rem", color: C.dim, marginBottom: 4 }}>
-            ↓ {pull.model} — {pull.status}{pull.pct != null ? ` · ${pull.pct}%` : ""}
+            ↓ {pull.model} — {pull.label}{pull.pct != null ? ` · ${pull.pct}%` : ""}
           </div>
           <div style={{ height: 6, background: C.border, borderRadius: 4, overflow: "hidden" }}>
             <div style={{ height: "100%", width: pull.pct != null ? `${pull.pct}%` : "100%",
