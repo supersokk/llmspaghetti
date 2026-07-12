@@ -184,7 +184,7 @@ spag gpu             # GPU detection info
 spag logs [service]  # webui | litellm | ollama | caddy
 spag doctor          # health-check everything
 spag restart         # restart the stack
-spag update          # apt + Ollama + Docker images + Python deps
+spag update          # pull latest LLMSpaghetti code + container images, redeploy
 spag reset-firstboot # re-run the setup wizard
 ```
 
@@ -193,10 +193,24 @@ spag reset-firstboot # re-run the setup wizard
 ## Updating
 
 ```bash
-spag update
+sudo spag update
 ```
-Runs apt upgrade, updates Ollama, pulls latest container images, and refreshes
-Python deps in the venv.
+
+This is the **one** update command — no manual `git pull`, no re-clone. It:
+
+1. Pulls the latest LLMSpaghetti code into the source checkout at
+   `/opt/llmspaghetti-src` (the installer leaves it there for exactly this).
+2. Redeploys our code — router (bind-mounted), SpagDesk, helper scripts — and
+   **rebuilds the Cockpit plugin** (so new tabs like **Nodes** appear).
+3. Pulls the latest service container images and restarts the stack.
+
+Then **hard-refresh your browser (Ctrl+Shift+R)** so Cockpit and SpagDesk load the
+new plugin build.
+
+> **Note:** `/opt/llmspaghetti` is the *deploy* target, not a git checkout — don't
+> run `git pull` there. The source lives at `/opt/llmspaghetti-src`; `spag update`
+> handles it for you. (Installed from your own clone instead? Point it there with
+> `LLMSPAGHETTI_SRC=/path/to/clone sudo -E spag update`.)
 
 ---
 
