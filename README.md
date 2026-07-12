@@ -94,15 +94,23 @@ installs (ComfyUI, Open WebUI, ROCm, MCP tools, …).
   endpoint; a **provenance tag** on every reply tells you who answered.
 - **One control plane** — Cockpit dashboard for models, routing, image engines,
   GPU/VRAM, and tap-to-install services.
+- **Multi-node** — split the CPU **core** (router + UI) from GPU **compute nodes**:
+  a low-power laptop classifies each message and routes it to a GPU box's Ollama
+  over the LAN. Node setup is one command (`node-bootstrap.sh`); a coding question
+  on the laptop runs on the GPU node and streams back.
 
 **Not built yet:** the bootable ISO (install is `git clone` + bootstrap for now),
-the VS Code extension, and multi-node. Full picture in [TODO.md](TODO.md) and
-[CHANGELOG.md](CHANGELOG.md).
+the VS Code extension, and the multi-node **management UI** (routing works today via
+config; the Cockpit *Nodes* tab is in progress). Full picture in [TODO.md](TODO.md)
+and [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
 ## Milestones
 
+- **Multi-node cluster** — *2026-07-12* — a CPU laptop "core" routes a coding
+  question to a separate GPU box over the LAN, which runs the inference and streams
+  the answer back. Brain and muscle on different machines.
 - **Images in one chat** — *2026-07-06* — `//image` generates locally via ComfyUI
   (SDXL / Z-Image) in the same conversation as text and code, with the router
   automatically freeing and restoring VRAM on a single 8GB card.

@@ -133,18 +133,20 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 
 ## 🌐 Phase 8 — Multi-node
 
-**Design locked: SSH-push control model** — core + compute nodes over SSH, node
-join + Cockpit Nodes tab (the Services-tab pattern, remote). Testable now with the
-2060S box as node-1; BC-250 Vulkan compute waits for the cards.
+**Design locked: SSH-push control model** — core + compute nodes over SSH.
+**PROVEN end-to-end 2026-07-12:** EliteBook (CPU core) routed a coding question to
+the 2060S (GPU node1) over the LAN, which ran it and streamed back.
 Full design → [PLANNED-multi-node.md](docs/PLANNED-multi-node.md).
 
-- ☐ **`node join`** — thin node bootstrap: GPU drivers + Ollama (LAN-exposed) +
-  authorize the core's SSH key (+ optional ufw to core IP)
-- ☐ **Cockpit "Nodes" tab** — add node, push installs (ComfyUI/ROCm), model pulls,
-  status — SSH-targeted, mirrors Services
-- ☐ **Core routing → node** — model→node map; router forwards to the node's Ollama
-  URL instead of localhost (extends the deferred multi-GPU backend map)
-- ☐ Node registry (`config/nodes.yaml`) + optional mDNS discovery
+- ✅ **`node-bootstrap.sh`** — thin node install: GPU drivers, Ollama (LAN-exposed),
+  optional `CORE_SSH_KEY`. No Docker/router/web stack.
+- ✅ **Core routing → node** — `config/nodes.yaml` model→node map; router forwards
+  to the node's Ollama URL instead of localhost (hot-reloaded; empty = single-box).
+- ☐ **Cockpit "Nodes" tab** — add node, assign models, push installs (ComfyUI/ROCm),
+  model pulls, live status — SSH-targeted, mirrors Services. **← next.** Also
+  makes node models selectable in Routing (no more hand-editing `nodes.yaml`).
+- ☐ Core→node SSH key flow (generate keypair, push to node on join)
+- ☐ Optional mDNS node discovery
 - ☐ Load balancing / failover across nodes
 - ☐ Storage node — deferred until requested
 
