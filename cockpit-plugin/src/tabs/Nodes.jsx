@@ -36,6 +36,14 @@ const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 const KEY_PATH = "/opt/llmspaghetti/config/node_ssh_key";
 const PUB_PATH = KEY_PATH + ".pub";
 
+// Keep ONLY the actual key line. The pubkey gets interpolated into a command the
+// user pastes as root on a node, so never trust stray output (ssh-keygen's banner,
+// a warning line) to be part of it.
+function parsePubkey(out) {
+  const line = (out || "").split("\n").map(s => s.trim()).find(s => /^ssh-[a-z0-9-]+ \S+/i.test(s));
+  return line || "";
+}
+
 const rget = (path) => cockpit.http(ROUTER_PORT).get(path).then(b => JSON.parse(b || "{}")).catch(() => ({}));
 const run  = (cmd, opts = {}) => cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message", ...opts });
 
@@ -93,18 +101,22 @@ export default function Nodes() {
   }, []);
 
   const loadKey = useCallback(() => {
-    run(`cat ${PUB_PATH} 2>/dev/null || true`).then(k => setPubkey(k.trim())).catch(() => setPubkey(""));
+    run(`cat ${PUB_PATH} 2>/dev/null || true`).then(k => setPubkey(parsePubkey(k))).catch(() => setPubkey(""));
   }, []);
 
   // Generate the core's SSH keypair (once) so it can push installs to nodes as root.
+  // -q + >/dev/null: ssh-keygen otherwise prints a banner/fingerprint/randomart on
+  // stdout, which would end up inside the authorize command we tell the user to run
+  // as root on a node. </dev/null so an existing key can't hang on an overwrite prompt.
   const genKey = async () => {
     setBusy(true);
     try {
-      const k = await run(
+      await run(
         `install -d -m 700 "$(dirname ${KEY_PATH})" && ` +
-        `ssh-keygen -t ed25519 -N '' -C llmspaghetti-core -f ${KEY_PATH} && ` +
-        `chmod 600 ${KEY_PATH} && cat ${PUB_PATH}`);
-      setPubkey(k.trim());
+        `ssh-keygen -q -t ed25519 -N '' -C llmspaghetti-core -f ${KEY_PATH} </dev/null >/dev/null && ` +
+        `chmod 600 ${KEY_PATH}`);
+      const k = await run(`cat ${PUB_PATH}`);
+      setPubkey(parsePubkey(k));
       setAlert({ type: "ok", msg: "Core SSH key generated — authorize it on each node (command below)." });
     } catch (e) {
       setAlert({ type: "err", msg: `Key generation failed: ${e.message || e}` });
