@@ -89,6 +89,10 @@ function serializeConfig(c) {
     "# Managed by the Image Generator tab. Hot-reloaded by the router (no restart).",
     "",
     `enabled: ${c.enabled ? "true" : "false"}`,
+    // Where image gen RUNS: "local" or a node id from nodes.yaml. Must be emitted
+    // here — this function rewrites the whole file, so omitting it would silently
+    // reset an outsourced node back to local on the next save from this tab.
+    `host: ${c.host || "local"}`,
     `engine: ${c.engine || ""}`,
     `family: ${c.family || "sd15"}`,
     `model_file: ${c.model_file || ""}`,
@@ -121,14 +125,17 @@ export default function ImageGen() {
   const [hfFiles, setHfFiles]   = useState(null);         // {repo, files:[...]} | null
   const [hfLoading, setHfLoading] = useState(false);
   const [customFamily, setCustomFamily] = useState({});   // {modelFile: family} for Installed section
+  const [nodes, setNodes]       = useState([]);           // compute nodes image gen can be sent to
 
   const loadAll = useCallback(async () => {
-    const [cat, conf, arch] = await Promise.all([
+    const [cat, conf, arch, nds] = await Promise.all([
       rget("/api/image-engines"), rget("/api/image-config"), rget("/api/image-architectures"),
+      rget("/api/nodes"),
     ]);
     setCatalog(cat && cat.engines ? cat : { tiers: {}, engines: [] });
     if (conf && conf.config) setCfg(conf.config);
     setArchs((arch && arch.architectures) || []);
+    setNodes((nds && nds.nodes) || []);
 
     // Optional HuggingFace token (from Settings) — attached to downloads to unlock
     // gated/private repos. Read best-effort; absent for public models is fine.
@@ -481,7 +488,39 @@ export default function ImageGen() {
             Image generation on
           </label>
         )}
+        {/* Outsource rendering to a node's GPU. The router talks to that node's
+            ComfyUI, and the VRAM hand-off follows it to the node's card. */}
+        {cfg && nodes.length > 0 && (
+          <label style={{ display: "flex", alignItems: "center", gap: "0.45rem",
+                          fontSize: "0.82rem", color: C.text }}>
+            Run on
+            <select value={cfg.host || "local"}
+              onChange={e => saveCfg({ ...cfg, host: e.target.value })}
+              style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`,
+                       borderRadius: 6, padding: "0.3rem 0.5rem", fontSize: "0.82rem",
+                       fontFamily: "inherit" }}>
+              <option value="local">this box (local)</option>
+              {nodes.map(n => (
+                <option key={n.id} value={n.id} disabled={!n.reachable}>
+                  {n.id}{n.reachable ? "" : " (unreachable)"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
+
+      {/* Outsourced: the local GPU panel above describes the WRONG card, so say so. */}
+      {cfg && cfg.host && cfg.host !== "local" && (
+        <div style={{ ...card, borderColor: C.accent, fontSize: "0.85rem", color: C.text }}>
+          🖼 Image generation runs on node <strong>{cfg.host}</strong> — this box's GPU stays free for chat.
+          <div style={{ fontSize: "0.78rem", color: C.dim, marginTop: 4 }}>
+            ComfyUI must be installed on that node (Cockpit → <strong>Nodes</strong> → 🖼 Install ComfyUI),
+            and checkpoints below are downloaded to <em>this</em> box — put the model on the node
+            (or run <code>comfyui-setup.sh</code> there) before rendering.
+          </div>
+        </div>
+      )}
 
       {/* Active engine summary */}
       {activeEng && (

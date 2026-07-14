@@ -4,6 +4,13 @@
 
 enabled: true
 
+# Where image generation RUNS. "local" = this box's ComfyUI. Set it to a node id
+# from nodes.yaml to outsource image gen to that node's GPU (install ComfyUI there
+# from Cockpit → Nodes first). The router then talks to that node's ComfyUI, and
+# the VRAM hand-off (demote chat models to RAM during a render) follows it — it's
+# the node's GPU that's contended, not this one's.
+host: local
+
 # Active engine (must match an id in image-engines.yaml for the tab to highlight
 # it, but the router only needs family + model_file + the render params below).
 engine: dreamshaper8

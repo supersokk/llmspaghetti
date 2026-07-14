@@ -414,6 +414,14 @@ function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, 
               🎮 Install GPU drivers
             </button>
             <button style={actionBtn} disabled={busy}
+              onClick={() => confirm(
+                `Install ComfyUI on ${node.id}?\n\nClones ComfyUI + a torch venv (several GB, takes a while) and runs it as a service on port 8188.\n\nAfterwards: Image tab → "Run on" → ${node.id} to send image generation there.`)
+                && onAction("Install ComfyUI",
+                     `${SRC_FRESH}; bash ${NODE_SRC}/scripts/comfyui-setup.sh`,
+                     `ComfyUI installed on ${node.id} — set Image tab → Run on → ${node.id}`)}>
+              🖼 Install ComfyUI
+            </button>
+            <button style={actionBtn} disabled={busy}
               onClick={() => onAction("Restart Ollama",
                 "systemctl restart ollama && sleep 1 && systemctl is-active ollama",
                 "Ollama restarted")}>

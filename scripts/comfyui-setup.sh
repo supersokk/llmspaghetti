@@ -108,7 +108,10 @@ UNIT
 )
 TMP="$(mktemp)"
 printf '%s\n' "$UNIT" > "$TMP"
-as_root "install -m0644 '$TMP' /etc/systemd/system/comfyui.service && systemctl daemon-reload && systemctl enable --now comfyui.service"
+# `enable --now` is a NO-OP on an already-running service, so a re-install would
+# never pick up a changed unit (the bug that bit caddy #26 and ollama #29).
+# Enable for boot, then RESTART to actually apply this unit.
+as_root "install -m0644 '$TMP' /etc/systemd/system/comfyui.service && systemctl daemon-reload && systemctl enable comfyui.service && systemctl restart comfyui.service"
 rm -f "$TMP"
 
 echo
