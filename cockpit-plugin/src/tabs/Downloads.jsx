@@ -20,6 +20,7 @@ const C = {
 const KIND = {
   model: { icon: "🧠", label: "Model" },
   file:  { icon: "🖼", label: "Checkpoint" },
+  job:   { icon: "⚙", label: "Node install" },
 };
 
 function ago(ts) {
