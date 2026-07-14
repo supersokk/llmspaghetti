@@ -111,7 +111,13 @@ export const downloads = {
     const i = this.active.findIndex(x => x.id === id);
     if (i === -1) return;
     const [j] = this.active.splice(i, 1);
-    this.history.unshift({ id: j.id, kind: j.kind, name: j.name, phase, msg, endedAt: Date.now() });
+    const entry = { id: j.id, kind: j.kind, name: j.name, phase, msg, endedAt: Date.now() };
+    // Keep a node job's output — these finish in a second (a no-op `git fetch`), so
+    // without this the log flashes past and there's no way to see what it did.
+    // Capped: history is persisted to localStorage.
+    if (j.node) entry.node = j.node;
+    if (j._out) entry.out = j._out.slice(-2000);
+    this.history.unshift(entry);
     this.history = this.history.slice(0, MAX_HISTORY);
     _saveHistory(this.history);
     this._emit();

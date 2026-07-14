@@ -263,6 +263,7 @@ export default function Nodes() {
             <NodeCard key={node.id} node={node} busy={busy} hasKey={!!pubkey}
               pull={dl.active.find(j => j.node === node.id && j.kind === "model")}
               job={dl.active.find(j => j.node === node.id && j.kind === "job")}
+              lastJob={dl.history.find(h => h.node === node.id && h.kind === "job")}
               onRemove={() => removeNode(node.id)} onToggle={m => toggleServe(node, m)}
               onPull={m => pullModel(node, m)}
               onAction={(label, remote, doneMsg) => pushAction(node, label, remote, doneMsg)} />
@@ -273,7 +274,7 @@ export default function Nodes() {
   );
 }
 
-function NodeCard({ node, pull, job, busy, hasKey, onRemove, onToggle, onPull, onAction }) {
+function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, onPull, onAction }) {
   const [pm, setPm] = useState("");
   const [ssh, setSsh] = useState(null);   // null | "testing" | { ok, out }
   const served = new Set(node.models || []);
@@ -427,6 +428,25 @@ function NodeCard({ node, pull, job, busy, hasKey, onRemove, onToggle, onPull, o
             </button>
           </div>
         ))}
+
+        {/* Result of the last push — these finish in ~1s, so the live log alone is
+            unreadable. Keep the outcome (and its output) visible until the next run. */}
+        {hasKey && !job && lastJob && (
+          <div style={{ marginTop: "0.6rem" }}>
+            <div style={{ fontSize: "0.78rem", color: lastJob.phase === "done" ? C.green : C.red }}>
+              {lastJob.phase === "done" ? "✓" : "✗"} {lastJob.msg}
+              <span style={{ color: C.dim }}> · {new Date(lastJob.endedAt).toLocaleTimeString()}</span>
+            </div>
+            {lastJob.out && (
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ fontSize: "0.75rem", color: C.dim, cursor: "pointer" }}>
+                  show output
+                </summary>
+                <pre style={{ ...preBox, maxHeight: 200, overflowY: "auto", color: C.dim }}>{lastJob.out}</pre>
+              </details>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
