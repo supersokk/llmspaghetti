@@ -56,9 +56,30 @@ else
 fi
 
 # ── 2. venv + deps (skip if PyTorch already imports) ──────────────────────────
+# A minimal compute node (node-bootstrap) has python3 but NOT python3-venv, so
+# `python3 -m venv` dies with "ensurepip is not available". The core happens to
+# have it (bootstrap installs it for the router venv) — this script must not rely
+# on that. Install it before we need it.
+if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
+  info "Installing python3-venv (needed to build ComfyUI's virtualenv)"
+  PYV="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  as_root "DEBIAN_FRONTEND=noninteractive apt-get update -qq" || true
+  as_root "DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv 'python${PYV}-venv'" \
+    || as_root "DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv" \
+    || die "Could not install python3-venv — install it on this box and re-run."
+fi
+
+# A venv left by a FAILED run has the interpreter but no pip. The check below only
+# looks for bin/python, so it would accept the broken venv and then die confusingly
+# on the first pip call. Detect and recreate instead.
+if as_user "test -x '$COMFY_DIR/venv/bin/python'" && ! as_user "test -x '$COMFY_DIR/venv/bin/pip'"; then
+  warn "Found an incomplete virtualenv (no pip) — recreating it"
+  as_user "rm -rf '$COMFY_DIR/venv'"
+fi
 if ! as_user "test -x '$COMFY_DIR/venv/bin/python'"; then
   info "Creating virtualenv"
-  as_user "python3 -m venv '$COMFY_DIR/venv'"
+  as_user "python3 -m venv '$COMFY_DIR/venv'" \
+    || die "virtualenv creation failed — is python3-venv installed for $(python3 -V 2>&1)?"
 fi
 if as_user "'$COMFY_DIR/venv/bin/python' -c 'import torch'" >/dev/null 2>&1; then
   ok "PyTorch already installed — skipping dependency install"

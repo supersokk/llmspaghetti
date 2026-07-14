@@ -26,6 +26,9 @@ CONFIG_DIR  = INSTALL_DIR / "config"
 LOG_DIR     = INSTALL_DIR / "logs"
 DONE_FLAG   = INSTALL_DIR / ".firstboot-complete"
 SELECTED_MODELS_FILE = LOG_DIR / "selected_models.json"
+# The router embeds messages with this to fuzzy-match learned routing corrections.
+# Must match router/main.py's EMBED_MODEL.
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 
 app = FastAPI(title="LLMSpaghetti Setup")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -379,7 +382,17 @@ async def apply_setup(
             SELECTED_MODELS_FILE.write_text(json.dumps(model_list))
         except Exception:
             pass
-        pull_models_background(model_list)
+
+    # Always pull the embedder too. The routing flywheel's fuzzy correction match
+    # needs it, and its absence is SILENT — the router just degrades to exact-match
+    # only ("embed failed … is 'nomic-embed-text' pulled?" in the log, nothing in
+    # the UI). It's ~274MB and fine on CPU. Kept out of SELECTED_MODELS_FILE: that
+    # list is the user's chat models, and this isn't one.
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    pull_models_background((model_list or []) + [EMBED_MODEL])
     start_stack()
 
     # Mark first boot complete — wizard won't run again
