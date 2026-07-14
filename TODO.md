@@ -142,12 +142,22 @@ Full design → [PLANNED-multi-node.md](docs/PLANNED-multi-node.md).
   optional `CORE_SSH_KEY`. No Docker/router/web stack.
 - ✅ **Core routing → node** — `config/nodes.yaml` model→node map; router forwards
   to the node's Ollama URL instead of localhost (hot-reloaded; empty = single-box).
-- 🚧 **Cockpit "Nodes" tab** — ✅ add/remove nodes (writes `nodes.yaml`, live
-  reachable + installed status via router `/api/nodes`), ✅ toggle which models a
-  node serves (drives routing), ✅ pull models onto a node via its Ollama
-  `/api/pull` (no SSH), ✅ node models selectable in Routing. ☐ SSH-push software
-  installs (ComfyUI/ROCm) — deferred follow-up.
-- ☐ Core→node SSH key flow (generate keypair, push to node on join)
+- ✅ **Cockpit "Nodes" tab** — add/remove nodes (writes `nodes.yaml`, with live
+  reachable and installed status via router `/api/nodes`), toggle which models a
+  node serves (drives routing), pull models onto a node via its Ollama `/api/pull`
+  (no SSH), node models selectable in Routing.
+- ✅ **Core→node SSH key flow** — Nodes tab generates the core's ed25519 key and
+  shows a one-liner to authorize it on a node (`root@node`; the same
+  `/root/.ssh/authorized_keys` slot `node-bootstrap`'s `CORE_SSH_KEY` fills).
+  Per-node **Test SSH** probe. *Proven against node1 (2060S).*
+- ✅ **SSH push-installs** — Update source / Install GPU drivers / Restart Ollama /
+  Reboot node, run as `root@node` against the node's **own**
+  `/opt/llmspaghetti-src/scripts/*.sh` (freshened first — `install-gpu-drivers.sh`
+  sources `gpu-detect.sh`, so a piped lone script would break). Long installs run
+  in the shared job manager, so they survive a tab switch and appear in Downloads.
+- ☐ **Per-node image routing** — the `image` role targets one local `COMFYUI_URL`,
+  so ComfyUI on a node is unreachable by the router. Needed before a
+  ComfyUI-on-node install button is anything but a dead button.
 - ☐ Optional mDNS node discovery
 - ☐ Load balancing / failover across nodes
 - ☐ **BC-250 node (CachyOS)** — niche Arch-based path for the AMD BC-250 boards;
