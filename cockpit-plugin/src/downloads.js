@@ -198,6 +198,55 @@ export const downloads = {
     return j ? (j._out || "") : "";
   },
 
+  // ── Checkpoint download ONTO A NODE (image gen outsourced there) ────────────
+  // The node downloads straight from the source — no double-hop through the core.
+  // We ssh as root, locate the node's ComfyUI (whichever user owns it), download
+  // into its models/<sub>/ and chown back to that user. Gated-repo token resolve
+  // happens on the CORE first (existing pattern), then the node gets the signed
+  // CDN URL. Quoting note: the remote script sits in DOUBLE quotes so the core
+  // shell expands $URL into it, while \$-escaped vars run on the node.
+  startNodeCheckpoint({ name, nodeId, host, keyPath, sub, outBase, url, sizeLabel, doneMsg, token }) {
+    const jobName = `${name} → ${nodeId}`;
+    if (this.isActive(jobName)) return false;
+    const id = _nextId();
+    const resolve = token
+      ? `R=$(curl -sIL -H 'Authorization: Bearer ${token}' -o /dev/null -w '%{url_effective}' "$URL" 2>/dev/null); [ -n "$R" ] && URL="$R"; `
+      : "";
+    const ssh = `ssh -i ${keyPath} -o IdentitiesOnly=yes -o BatchMode=yes ` +
+                `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=6 root@${host}`;
+    const remote =
+      `C=\\$(ls -d /home/*/ComfyUI /root/ComfyUI 2>/dev/null | head -1); ` +
+      `[ -n \\"\\$C\\" ] || { echo NOCOMFY; exit 9; }; ` +
+      `O=\\$(stat -c %U \\"\\$C\\"); D=\\"\\$C/models/${sub}\\"; mkdir -p \\"\\$D\\"; ` +
+      `if command -v wget >/dev/null 2>&1; then wget --progress=dot:mega -O \\"\\$D/${outBase}\\" \\"$URL\\"; ` +
+      `else curl -fL -o \\"\\$D/${outBase}\\" \\"$URL\\"; fi ` +
+      `&& chown -R \\"\\$O\\" \\"\\$D\\"`;
+    const cmd = `URL='${url}'; ${resolve}${ssh} "${remote}"`;
+    const proc = _ck.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "out" });
+    const job = { id, kind: "file", name: jobName, node: nodeId, pct: null,
+                  label: sizeLabel || "", phase: "run", startedAt: Date.now(), _proc: proc, _out: "" };
+    this.active.push(job);
+    this._emit();
+    proc.stream(d => {
+      job._out = (job._out + d).slice(-2000);
+      const p = parseFile(d);
+      this._patch(id, { pct: p.pct });
+    });
+    proc.then(
+      () => this._finish(id, "done", doneMsg || `${name} downloaded onto ${nodeId}`),
+      (e) => {
+        const noComfy = /NOCOMFY/.test(job._out);
+        const gated   = /\b(401|403)\b|unauthor|forbidden|gated/i.test(job._out);
+        this._finish(id, "error", noComfy
+          ? `ComfyUI isn't installed on ${nodeId} yet — Nodes → ${nodeId} → 🖼 Install ComfyUI first.`
+          : gated
+            ? "Download failed — this model looks gated. Add your HuggingFace token in Settings, accept the model's licence, then retry."
+            : `Download onto ${nodeId} failed: ${(e && e.message) || e}`);
+      },
+    );
+    return true;
+  },
+
   // ── File download (image checkpoints) — aria2c/wget, HF-token resolve ───────
   // For GATED repos, resolve the token'd HF redirect to its signed CDN URL FIRST,
   // then download that plain URL (the signed URL rejects an Authorization header,

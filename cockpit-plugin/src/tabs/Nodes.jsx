@@ -35,6 +35,7 @@ const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 // CORE_SSH_KEY hook, or the one-liner this tab shows).
 const KEY_PATH = "/opt/llmspaghetti/config/node_ssh_key";
 const PUB_PATH = KEY_PATH + ".pub";
+const IMAGE_CFG_PATH = "/opt/llmspaghetti/config/image.yaml";   // holds host: <node-id> when image gen is outsourced
 
 // Keep ONLY the actual key line. The pubkey gets interpolated into a command the
 // user pastes as root on a node, so never trust stray output (ssh-keygen's banner,
@@ -224,6 +225,32 @@ export default function Nodes() {
     await save(nodes.filter(n => n.id !== id).map(stripLive));
   };
 
+  // Rename a node. The id is referenced from image.yaml too (host: <id>) when image
+  // gen is outsourced there — follow the rename into that file, or the router would
+  // stop finding the node and silently fall back to local image gen.
+  const renameNode = async (node) => {
+    const nn = (prompt(`New name for node "${node.id}":`, node.id) || "").trim();
+    if (!nn || nn === node.id) return;
+    if (!/^[A-Za-z0-9._-]+$/.test(nn)) {
+      setAlert({ type: "err", msg: "Node names: letters, digits, dots, dashes, underscores only." });
+      return;
+    }
+    if (nodes.some(n => n.id === nn)) {
+      setAlert({ type: "err", msg: `A node named "${nn}" already exists.` });
+      return;
+    }
+    await save(nodes.map(n => n.id === node.id
+      ? { id: nn, url: n.url, models: n.models || [] } : stripLive(n)));
+    try {
+      const raw = await cockpit.file(IMAGE_CFG_PATH, { superuser: "try" }).read();
+      if (raw && raw.split("\n").some(l => l.trim() === `host: ${node.id}`)) {
+        await cockpit.file(IMAGE_CFG_PATH, { superuser: "try" }).replace(
+          raw.split("\n").map(l => l.trim() === `host: ${node.id}` ? `host: ${nn}` : l).join("\n"));
+      }
+    } catch { /* image.yaml absent — nothing referenced the old name */ }
+    setAlert({ type: "ok", msg: `Renamed ${node.id} → ${nn}` });
+  };
+
   // Toggle whether a node SERVES an installed model (adds/removes it from models[]).
   const toggleServe = async (node, model) => {
     const serves = (node.models || []).includes(model);
@@ -334,7 +361,8 @@ export default function Nodes() {
               pull={dl.active.find(j => j.node === node.id && j.kind === "model")}
               job={dl.active.find(j => j.node === node.id && j.kind === "job")}
               lastJob={dl.history.find(h => h.node === node.id && h.kind === "job")}
-              onRemove={() => removeNode(node.id)} onToggle={m => toggleServe(node, m)}
+              onRemove={() => removeNode(node.id)} onRename={() => renameNode(node)}
+              onToggle={m => toggleServe(node, m)}
               onPull={m => pullModel(node, m)} onDelete={m => deleteModel(node, m)}
               onAction={(label, remote, doneMsg) => pushAction(node, label, remote, doneMsg)} />
           ))}
@@ -344,7 +372,7 @@ export default function Nodes() {
   );
 }
 
-function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, onPull, onDelete, onAction }) {
+function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onRename, onToggle, onPull, onDelete, onAction }) {
   const [pm, setPm] = useState("");
   const [ssh, setSsh] = useState(null);   // null | "testing" | { ok, out }
   const [stats, setStats] = useState(null);
@@ -385,6 +413,11 @@ function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, 
         <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: node.reachable ? C.green : C.red }} />
           <span style={{ fontWeight: 700 }}>{node.id}</span>
+          <button onClick={onRename} disabled={busy} title="Rename this node"
+            style={{ background: "transparent", border: "none", color: C.dim, cursor: "pointer",
+                     fontSize: "0.85rem", padding: "0 0.15rem", fontFamily: "inherit" }}>
+            ✎
+          </button>
           <span style={{ fontFamily: "monospace", fontSize: "0.78rem", color: C.dim }}>{node.url}</span>
           <span style={{ fontSize: "0.72rem", color: node.reachable ? C.green : C.red }}>
             {node.reachable ? "reachable" : "unreachable"}
