@@ -42,3 +42,9 @@
 {"id": "edge-08", "message": "what do you think of pizza?", "expected": "general", "context": {}, "note": "GUARD: trivia opinion stays general, not reasoning"}
 {"id": "code-09", "message": "python reverse script", "expected": "code", "context": {}, "note": "language + filler + artifact -> code (was general)"}
 {"id": "edge-09", "message": "write a python article about snakes", "expected": "general", "context": {}, "note": "GUARD: language + non-code noun stays general"}
+{"id": "code-06", "message": "code snippet please", "expected": "code", "context": {}, "note": "verb-less code noun (seen on the box: fell through to general)"}
+{"id": "code-07", "message": "show me some code", "expected": "code", "context": {}, "note": "verb-less: 'some code'"}
+{"id": "code-08", "message": "can I see the source code", "expected": "code", "context": {}, "note": "verb-less: 'source code'"}
+{"id": "code-09", "message": "give me a snippet", "expected": "code", "context": {}, "note": "bare 'snippet' is unambiguously code"}
+{"id": "notcode-01", "message": "what is the dress code for the wedding", "expected": "fast", "context": {}, "note": "GUARD: 'dress code' must NOT hijack to code"}
+{"id": "notcode-02", "message": "what is the postal code for Oslo", "expected": "fast", "context": {}, "note": "GUARD: 'postal code' must NOT hijack to code"}
