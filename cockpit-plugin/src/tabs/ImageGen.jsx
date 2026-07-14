@@ -25,12 +25,12 @@ const C = {
 
 const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
 const ROUTER_PORT = 5000;
-const COMFY_PORT  = 8188;
 const IMAGE_CFG_FILE = "/opt/llmspaghetti/config/image.yaml";
 const IMAGES_DIR = "/opt/llmspaghetti/images";
 
 const rget = (p) => cockpit.http(ROUTER_PORT).get(p).then(b => JSON.parse(b || "{}")).catch(() => ({}));
-const cget = (p) => cockpit.http(COMFY_PORT).get(p).then(b => JSON.parse(b || "{}")).catch(() => null);
+// The core's SSH identity (Nodes tab generates it) — used to start ComfyUI on a node.
+const NODE_KEY = "/opt/llmspaghetti/config/node_ssh_key";
 
 const GB = 1024 ** 3;
 const TIER_ORDER = ["low", "better", "best"];
@@ -145,18 +145,19 @@ export default function ImageGen() {
         setHfToken(m ? m[1].replace(/^["']|["']$/g, "") : "");
       }).catch(() => {});
 
-    const stats = await cget("/system_stats");
-    if (stats) {
-      const dev = (stats.devices || [])[0] || {};
-      setComfy({ ok: true, vramGb: (dev.vram_total || 0) / GB, gpu: dev.name || "GPU" });
+    // Ask the router which ComfyUI is actually in play (local or a node's) — polling
+    // localhost:8188 here would keep reporting THIS box's ComfyUI, GPU and
+    // checkpoints even when image gen has been outsourced to a node.
+    const st = await rget("/api/image-status");
+    if (st && st.reachable) {
+      setComfy({ ok: true, vramGb: ((st.gpu && st.gpu.vram_total) || 0) / GB,
+                 gpu: (st.gpu && st.gpu.name) || "GPU", host: st.host, url: st.url });
+      setInstalled(new Set(st.checkpoints || []));
     } else {
-      setComfy({ ok: false, vramGb: 0, gpu: "" });
+      setComfy({ ok: false, vramGb: 0, gpu: "",
+                 host: (st && st.host) || "local", url: st && st.url });
+      setInstalled(new Set());
     }
-    const info = await cget("/object_info/CheckpointLoaderSimple");
-    try {
-      const list = info.CheckpointLoaderSimple.input.required.ckpt_name[0] || [];
-      setInstalled(new Set(list));
-    } catch { /* ComfyUI down or shape changed */ }
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -344,16 +345,30 @@ export default function ImageGen() {
     }
   };
 
-  // Start the ComfyUI systemd service (installed via `spag comfyui install`).
+  // Start the ComfyUI systemd service — on THIS box, or on the node image gen is
+  // outsourced to. Starting it locally when the work happens on a node is useless
+  // (and confusing: "Unit comfyui.service not found" on a core that never had it).
   const startComfy = () => {
-    setAlert({ type: "ok", msg: "Starting ComfyUI service…" });
-    const proc = cockpit.spawn(["bash", "-c", PATHFIX + "systemctl start comfyui"],
-      { superuser: "try", err: "message" });
-    proc.then(
-      () => { setAlert({ type: "ok", msg: "ComfyUI starting — give it ~10s, then it'll connect." });
+    const onNode = cfg && cfg.host && cfg.host !== "local";
+    const node   = onNode && nodes.find(n => n.id === cfg.host);
+    if (onNode && !node) {
+      setAlert({ type: "err", msg: `Node '${cfg.host}' is not in nodes.yaml — check the Nodes tab.` });
+      return;
+    }
+    const where = onNode ? `on ${node.id}` : "";
+    const host  = onNode ? (node.url || "").replace(/^https?:\/\//, "").replace(/[:/].*$/, "") : "";
+    const cmd   = onNode
+      ? `ssh -i ${NODE_KEY} -o IdentitiesOnly=yes -o BatchMode=yes ` +
+        `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=6 root@${host} 'systemctl start comfyui'`
+      : "systemctl start comfyui";
+
+    setAlert({ type: "ok", msg: `Starting ComfyUI ${where}…` });
+    cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" }).then(
+      () => { setAlert({ type: "ok", msg: `ComfyUI starting ${where} — give it ~10s, then it'll connect.` });
               setTimeout(loadAll, 8000); },
-      (e) => setAlert({ type: "err",
-              msg: `Couldn't start the service (${e && e.message || e}). Not installed yet? Run on the box:  spag comfyui install` }),
+      (e) => setAlert({ type: "err", msg: onNode
+              ? `Couldn't start ComfyUI on ${node.id} (${(e && e.message) || e}). Not installed there yet? Cockpit → Nodes → ${node.id} → 🖼 Install ComfyUI.`
+              : `Couldn't start the service (${(e && e.message) || e}). Not installed yet? Run on the box:  spag comfyui install` }),
     );
   };
 
@@ -463,13 +478,16 @@ export default function ImageGen() {
                        background: comfy.ok ? C.green : comfy.ok === false ? C.red : C.dim }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: "0.9rem", fontWeight: 600, color: C.text }}>
-            ComfyUI {comfy.ok ? "connected" : comfy.ok === false ? "unreachable" : "checking…"}
+            ComfyUI{comfy.host && comfy.host !== "local" ? ` on ${comfy.host}` : ""}{" "}
+            {comfy.ok ? "connected" : comfy.ok === false ? "unreachable" : "checking…"}
           </div>
           <div style={{ fontSize: "0.78rem", color: C.dim }}>
             {comfy.ok
-              ? `${comfy.gpu} · ${comfy.vramGb.toFixed(1)} GB VRAM`
+              ? `${comfy.gpu} · ${comfy.vramGb.toFixed(1)} GB VRAM${comfy.url ? ` · ${comfy.url}` : ""}`
               : comfy.ok === false
-                ? "Not running on :8188. Start it below, or set it up once with  spag comfyui install"
+                ? (comfy.host && comfy.host !== "local"
+                    ? `Not running at ${comfy.url || comfy.host}. Install it on that node: Nodes → ${comfy.host} → 🖼 Install ComfyUI (then Start below).`
+                    : "Not running on :8188. Start it below, or set it up once with  spag comfyui install")
                 : ""}
           </div>
         </div>

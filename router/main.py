@@ -1765,6 +1765,40 @@ async def api_image_config():
     return JSONResponse({"config": _load_image_cfg(), "effective": _image_settings()})
 
 
+@app.get("/api/image-status")
+async def api_image_status():
+    """Live status of the ComfyUI that image gen ACTUALLY uses — local or a node's.
+
+    The Image tab used to poll localhost:8188 directly, so after outsourcing to a
+    node it kept reporting the *core's* ComfyUI (and its GPU, and its checkpoints).
+    Ask the effective host instead: the router already resolves it, and going through
+    the router also means no CORS to a node.
+    """
+    host = _image_settings()["host"]
+    node = _image_node()
+    base = _comfy_base()
+    out = {"host": host if node else "local", "url": base, "reachable": False,
+           "gpu": None, "checkpoints": []}
+    try:
+        r = await _ext_client.get(f"{base}/system_stats", timeout=6.0)
+        r.raise_for_status()
+        dev = (r.json().get("devices") or [{}])[0]
+        out["reachable"] = True
+        out["gpu"] = {"name":       dev.get("name") or "GPU",
+                      "vram_total": dev.get("vram_total") or 0,
+                      "vram_free":  dev.get("vram_free") or 0}
+    except Exception:
+        return JSONResponse(out)          # unreachable — no point asking for models
+    try:
+        i = await _ext_client.get(f"{base}/object_info/CheckpointLoaderSimple", timeout=8.0)
+        i.raise_for_status()
+        out["checkpoints"] = list(
+            i.json()["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0] or [])
+    except Exception:
+        pass                               # ComfyUI up but no checkpoints / shape changed
+    return JSONResponse(out)
+
+
 # ── Image file serving ────────────────────────────────────────────────────────
 
 @app.get("/images/{filename}")
