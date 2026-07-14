@@ -162,6 +162,36 @@ export const downloads = {
     return true;
   },
 
+  // ── Generic long-running job (e.g. an SSH push-install on a node) ───────────
+  // Lives here for the same reason downloads do: the manager is module-level, so a
+  // multi-minute install keeps running (and keeps its log) when Cockpit unmounts the
+  // tab. err:"out" folds stderr into the stream — apt/driver installers talk there.
+  startJob({ name, node, cmd, doneMsg }) {
+    if (this.isActive(name)) return false;
+    const id = _nextId();
+    const proc = _ck.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "out" });
+    const job = { id, kind: "job", name, node, pct: null, label: "running…",
+                  phase: "run", startedAt: Date.now(), _proc: proc, _out: "" };
+    this.active.push(job);
+    this._emit();
+    proc.stream(d => {
+      job._out = (job._out + d).slice(-4000);          // rolling tail for the log view
+      const last = d.split("\n").map(s => s.trim()).filter(Boolean).pop();
+      if (last) this._patch(id, { label: last.slice(0, 70) });
+    });
+    proc.then(
+      () => this._finish(id, "done",  doneMsg || `${name} finished`),
+      (e) => this._finish(id, "error", `${name} failed: ${(e && e.message) || e}`),
+    );
+    return true;
+  },
+
+  // Rolling output of an active job (for a live log panel).
+  jobOutput(id) {
+    const j = this.active.find(x => x.id === id);
+    return j ? (j._out || "") : "";
+  },
+
   // ── File download (image checkpoints) — aria2c/wget, HF-token resolve ───────
   // For GATED repos, resolve the token'd HF redirect to its signed CDN URL FIRST,
   // then download that plain URL (the signed URL rejects an Authorization header,

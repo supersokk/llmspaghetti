@@ -47,6 +47,18 @@ function parsePubkey(out) {
 const rget = (path) => cockpit.http(ROUTER_PORT).get(path).then(b => JSON.parse(b || "{}")).catch(() => ({}));
 const run  = (cmd, opts = {}) => cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message", ...opts });
 
+const REPO = "https://github.com/supersokk/llmspaghetti";
+const NODE_SRC = "/opt/llmspaghetti-src";
+
+// Installs run the node's OWN checkout of our scripts — install-gpu-drivers.sh
+// sources gpu-detect.sh, so piping a lone script over stdin would break. Freshen
+// (or clone) the source first, then run the script from it. Keep these free of
+// single quotes: they're passed inside ssh '…'.
+const SRC_FRESH =
+  `set -e; if [ -d ${NODE_SRC}/.git ]; then ` +
+  `git -C ${NODE_SRC} fetch --depth 1 origin main && git -C ${NODE_SRC} reset --hard origin/main; ` +
+  `else rm -rf ${NODE_SRC} && git clone --depth 1 ${REPO} ${NODE_SRC}; fi`;
+
 // Ollama URL (http://host:11434) → bare host for SSH.
 const hostFromUrl = (url) => (url || "").replace(/^https?:\/\//, "").replace(/[:/].*$/, "");
 // SSH to a node as root with the core key. accept-new auto-trusts a new LAN host key
@@ -182,6 +194,15 @@ export default function Nodes() {
       setAlert({ type: "err", msg: `${model} is already pulling on ${node.id}` });
   };
 
+  // Push an install/control action to a node over SSH. Runs through the shared job
+  // manager so a multi-minute driver install survives a tab switch and shows in
+  // the Downloads tab.
+  const pushAction = (node, label, remote, doneMsg) => {
+    const cmd = `${sshBase(hostFromUrl(node.url))} '${remote}'`;
+    if (!downloads.startJob({ name: `${label} → ${node.id}`, node: node.id, cmd, doneMsg }))
+      setAlert({ type: "err", msg: `${label} is already running on ${node.id}` });
+  };
+
   // When a node pull finishes (active job count for nodes drops), refresh so the
   // freshly-pulled model shows up in the node's installed list.
   const prevNodeJobs = useRef(0);
@@ -239,10 +260,12 @@ export default function Nodes() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           {nodes.map(node => (
-            <NodeCard key={node.id} node={node} pull={dl.active.find(j => j.node === node.id)} busy={busy}
-              hasKey={!!pubkey}
+            <NodeCard key={node.id} node={node} busy={busy} hasKey={!!pubkey}
+              pull={dl.active.find(j => j.node === node.id && j.kind === "model")}
+              job={dl.active.find(j => j.node === node.id && j.kind === "job")}
               onRemove={() => removeNode(node.id)} onToggle={m => toggleServe(node, m)}
-              onPull={m => pullModel(node, m)} />
+              onPull={m => pullModel(node, m)}
+              onAction={(label, remote, doneMsg) => pushAction(node, label, remote, doneMsg)} />
           ))}
         </div>
       )}
@@ -250,7 +273,7 @@ export default function Nodes() {
   );
 }
 
-function NodeCard({ node, pull, busy, hasKey, onRemove, onToggle, onPull }) {
+function NodeCard({ node, pull, job, busy, hasKey, onRemove, onToggle, onPull, onAction }) {
   const [pm, setPm] = useState("");
   const [ssh, setSsh] = useState(null);   // null | "testing" | { ok, out }
   const served = new Set(node.models || []);
@@ -361,6 +384,49 @@ function NodeCard({ node, pull, busy, hasKey, onRemove, onToggle, onPull }) {
         {ssh && ssh !== "testing" && (
           <pre style={{ ...preBox, marginTop: 6, color: ssh.ok ? C.dim : C.red }}>{ssh.out || "(no output)"}</pre>
         )}
+
+        {/* Push-installs — run the node's own scripts over SSH */}
+        {hasKey && (job ? (
+          <div style={{ marginTop: "0.7rem" }}>
+            <div style={{ fontSize: "0.78rem", color: C.accent2, marginBottom: 4 }}>
+              ⚙ {job.name} — <span style={{ color: C.dim }}>{job.label}</span>
+            </div>
+            <pre style={{ ...preBox, maxHeight: 160, overflowY: "auto", color: C.dim }}>
+              {downloads.jobOutput(job.id) || "starting…"}
+            </pre>
+            <div style={{ fontSize: "0.72rem", color: C.dim, marginTop: 4 }}>
+              Keeps running if you switch tabs — also listed in the Downloads tab.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.6rem" }}>
+            <button style={actionBtn} disabled={busy}
+              onClick={() => onAction("Update source", SRC_FRESH, "Node source updated")}>
+              ↻ Update source
+            </button>
+            <button style={actionBtn} disabled={busy}
+              onClick={() => confirm(
+                `Install GPU drivers on ${node.id}?\n\nThis takes several minutes and the node must REBOOT afterwards.`)
+                && onAction("Install GPU drivers",
+                     `${SRC_FRESH}; bash ${NODE_SRC}/scripts/install-gpu-drivers.sh`,
+                     "GPU drivers installed — reboot the node")}>
+              🎮 Install GPU drivers
+            </button>
+            <button style={actionBtn} disabled={busy}
+              onClick={() => onAction("Restart Ollama",
+                "systemctl restart ollama && sleep 1 && systemctl is-active ollama",
+                "Ollama restarted")}>
+              ↻ Restart Ollama
+            </button>
+            <button style={{ ...actionBtn, color: C.yellow }} disabled={busy}
+              onClick={() => confirm(`Reboot ${node.id}? It will be unreachable for a minute.`)
+                && onAction("Reboot node",
+                     "(sleep 1 && systemctl reboot) >/dev/null 2>&1 & echo rebooting",
+                     "Reboot sent")}>
+              ⏻ Reboot node
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -417,6 +483,9 @@ const card  = { background: C.surface, border: `1px solid ${C.border}`, borderRa
 const input = { background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6,
                 padding: "0.4rem 0.6rem", fontSize: "0.85rem", fontFamily: "inherit", outline: "none", marginTop: 4 };
 const pill  = { borderRadius: 16, padding: "0.22rem 0.6rem", fontSize: "0.76rem", fontWeight: 600, fontFamily: "monospace" };
+const actionBtn = { background: C.surface2, color: C.text, border: `1px solid ${C.border}`,
+                    borderRadius: 7, padding: "0.35rem 0.7rem", fontSize: "0.78rem", fontWeight: 600,
+                    cursor: "pointer", fontFamily: "inherit" };
 const preBox = { marginTop: 4, padding: "0.5rem 0.6rem", background: C.bg, border: `1px solid ${C.border}`,
                  borderRadius: 6, fontSize: "0.72rem", color: C.text, whiteSpace: "pre-wrap",
                  wordBreak: "break-all", overflowX: "auto", fontFamily: "monospace" };
