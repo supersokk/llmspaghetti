@@ -116,7 +116,16 @@ _KEYWORD_RULES: list[tuple[str, re.Pattern, Optional[re.Pattern]]] = [
         # ("python reverse script", "javascript sort function")
         r'(?:python|javascript|typescript|java|golang|rust|bash|shell|sql|'
         r'html|css|php|ruby|kotlin|swift)(?:\s+\w+){0,4}?\s+'
-        r'(?:script|program|function|code|snippet|class|method|file|app)'
+        r'(?:script|program|function|code|snippet|class|method|file|app)|'
+        # Verb-less code nouns — "code snippet please", "show me some code".
+        # Every rule above needs a VERB or a LANGUAGE, so a bare request for code
+        # fell through to `general` (seen on the box: 'code snippet please').
+        # Deliberately NOT a bare `code` keyword — that hijacks "dress code",
+        # "postal/zip/area code", "code of conduct". Only unambiguous phrasings:
+        r'code\s+(?:snippet|example|sample|review)|'
+        r'snippet\s+of\s+code|source\s+code|'
+        r'\bsnippets?\b|'
+        r'(?:some|any|more)\s+code\b'
         r')\b',
         re.IGNORECASE
     ), None),
