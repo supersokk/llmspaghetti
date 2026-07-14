@@ -20,6 +20,7 @@ from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Optional
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -54,6 +55,7 @@ EMBED_MODEL      = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 # saves it into IMAGES_DIR — same serve/inline path DALL-E used. Preferred over
 # DALL-E when enabled; DALL-E stays as a cloud fallback if an OpenAI key is set.
 COMFYUI_URL      = os.environ.get("COMFYUI_URL", "http://host.docker.internal:8188")
+COMFYUI_PORT     = int(os.environ.get("COMFYUI_PORT", "8188"))   # port ComfyUI listens on, on a node
 COMFYUI_ENABLED  = os.environ.get("COMFYUI_ENABLED", "true").lower() not in ("0", "false", "no", "")
 COMFYUI_MODEL    = os.environ.get("COMFYUI_MODEL", "dreamshaper_8.safetensors")
 COMFYUI_STEPS    = int(os.environ.get("COMFYUI_STEPS", "20"))
@@ -853,6 +855,7 @@ def _image_settings() -> dict:
     c = _load_image_cfg()
     return {
         "enabled":  bool(c.get("enabled", COMFYUI_ENABLED)),
+        "host":     str(c.get("host") or "local"),   # "local" | a node id from nodes.yaml
         "family":   str(c.get("family", "sd15")),
         "model":    str(c.get("model_file", COMFYUI_MODEL)),
         "steps":    int(c.get("steps", COMFYUI_STEPS)),
@@ -862,6 +865,38 @@ def _image_settings() -> dict:
         "negative": str(c.get("negative", COMFYUI_NEGATIVE)),
         "timeout":  float(c.get("timeout", COMFYUI_TIMEOUT)),
     }
+
+
+def _image_node() -> dict | None:
+    """The node image gen is outsourced to (image.yaml `host: <node-id>`), or None
+    for local. Unknown id → None (fall back to local rather than fail the request)."""
+    host = _image_settings()["host"]
+    if not host or host == "local":
+        return None
+    for node in _load_nodes():
+        if node.get("id") == host and node.get("url"):
+            return node
+    log.warning(f"image host {host!r} is not a known node — falling back to local ComfyUI")
+    return None
+
+
+def _comfy_base() -> str:
+    """ComfyUI's base URL: the local one, or a node's when image gen is outsourced.
+    A node's entry gives its Ollama URL, so take that host and ComfyUI's port."""
+    node = _image_node()
+    if not node:
+        return COMFYUI_URL
+    host = urlparse(str(node["url"])).hostname
+    return f"http://{host}:{COMFYUI_PORT}" if host else COMFYUI_URL
+
+
+def _comfy_ollama_base() -> str:
+    """The Ollama that shares a GPU with ComfyUI — i.e. the one on the SAME box.
+    The VRAM handoff (demote chat to RAM, promote back) must target THAT Ollama:
+    if image gen runs on a node, it's the node's GPU that's contended, not the
+    core's, and demoting the core's models would free the wrong card."""
+    node = _image_node()
+    return str(node["url"]).rstrip("/") if node else OLLAMA_URL
 
 
 def _comfy_display_model(s: dict | None = None) -> str:
@@ -967,7 +1002,7 @@ async def _generate_image_comfy(prompt: str) -> str:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     q = await _ext_client.post(
-        f"{COMFYUI_URL}/prompt",
+        f"{_comfy_base()}/prompt",
         json={"prompt": _comfy_workflow(prompt, s), "client_id": secrets.token_hex(8)},
         timeout=30.0,
     )
@@ -983,7 +1018,7 @@ async def _generate_image_comfy(prompt: str) -> str:
     deadline = time.monotonic() + s["timeout"]
     images = None
     while time.monotonic() < deadline:
-        h = await _ext_client.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=15.0)
+        h = await _ext_client.get(f"{_comfy_base()}/history/{prompt_id}", timeout=15.0)
         h.raise_for_status()
         entry = h.json().get(prompt_id)
         if entry:
@@ -1002,7 +1037,7 @@ async def _generate_image_comfy(prompt: str) -> str:
 
     info = images[0]
     img = await _ext_client.get(
-        f"{COMFYUI_URL}/view",
+        f"{_comfy_base()}/view",
         params={"filename": info["filename"],
                 "subfolder": info.get("subfolder", ""),
                 "type": info.get("type", "output")},
@@ -1022,7 +1057,7 @@ async def _comfy_free_vram_mb() -> int | None:
     checkpoint will land in — the number that decides whether we need to disturb
     chat at all."""
     try:
-        r = await _ext_client.get(f"{COMFYUI_URL}/system_stats", timeout=8.0)
+        r = await _ext_client.get(f"{_comfy_base()}/system_stats", timeout=8.0)
         r.raise_for_status()
         devices = r.json().get("devices", [])
         if not devices:
@@ -1058,7 +1093,7 @@ async def _demote_ollama_to_cpu() -> list[str]:
         return demoted
 
     try:
-        ps = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=8.0)
+        ps = await _ext_client.get(f"{_comfy_ollama_base()}/api/ps", timeout=8.0)
         ps.raise_for_status()
         models = ps.json().get("models", [])
     except Exception as e:
@@ -1076,7 +1111,7 @@ async def _demote_ollama_to_cpu() -> list[str]:
             # Empty-prompt load with num_gpu:0 reloads the model wholly into RAM.
             # keep_alive:-1 pins it there so it survives the whole image gen.
             await _ext_client.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{_comfy_ollama_base()}/api/generate",
                 json={"model": name, "options": {"num_gpu": 0}, "keep_alive": -1},
                 timeout=60.0,
             )
@@ -1094,7 +1129,7 @@ async def _demote_ollama_to_cpu() -> list[str]:
         for _ in range(8):
             await asyncio.sleep(0.5)
             try:
-                still = await _ext_client.get(f"{OLLAMA_URL}/api/ps", timeout=5.0)
+                still = await _ext_client.get(f"{_comfy_ollama_base()}/api/ps", timeout=5.0)
                 resident = {(mm.get("name") or mm.get("model")): mm.get("size_vram", 0)
                             for mm in still.json().get("models", [])}
                 if all(resident.get(n, 0) == 0 for n in want):
@@ -1118,7 +1153,7 @@ async def _promote_ollama_to_vram(models: list[str]) -> None:
         return
     try:
         await _ext_client.post(
-            f"{COMFYUI_URL}/free",
+            f"{_comfy_base()}/free",
             json={"unload_models": True, "free_memory": True},
             timeout=15.0,
         )
@@ -1146,7 +1181,7 @@ async def _promote_ollama_to_vram(models: list[str]) -> None:
             # unload window to race. Ollama clamps num_gpu to the model's layer
             # count, so 999 == "all layers on GPU"; VRAM is free after the wait.
             r = await _ext_client.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{_comfy_ollama_base()}/api/generate",
                 json={"model": name, "options": {"num_gpu": 999}, "keep_alive": -1},
                 timeout=120.0,
             )
@@ -1154,7 +1189,7 @@ async def _promote_ollama_to_vram(models: list[str]) -> None:
             # embeddings endpoint instead so they too return to the GPU.
             if r.status_code == 400:
                 await _ext_client.post(
-                    f"{OLLAMA_URL}/api/embeddings",
+                    f"{_comfy_ollama_base()}/api/embeddings",
                     json={"model": name, "prompt": "warmup", "keep_alive": -1},
                     timeout=120.0,
                 )
@@ -1436,7 +1471,8 @@ async def lifespan(app: FastAPI):
     log.info(f"router ready  →  {LITELLM_URL}")
     _img = _image_settings()
     if _img["enabled"]:
-        log.info(f"image generation: ComfyUI  ({COMFYUI_URL}, "
+        _where = f" on node '{_img['host']}'" if _image_node() else ""
+        log.info(f"image generation: ComfyUI{_where}  ({_comfy_base()}, "
                  f"{_img['family']}/{_comfy_display_model(_img)})"
                  f"{' + DALL-E fallback' if OPENAI_API_KEY else ''}")
     elif OPENAI_API_KEY:
