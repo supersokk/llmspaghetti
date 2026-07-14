@@ -1579,7 +1579,14 @@ async def api_routing_mode():
 @app.get("/api/nodes")
 async def api_nodes():
     """Compute nodes from nodes.yaml, each with live status: is its Ollama
-    reachable, and which models are actually installed there (its /api/tags).
+    reachable, which models are installed (/api/tags), and which are actually
+    RESIDENT right now (/api/ps, with the VRAM each holds).
+
+    served / installed / loaded are three different things and were being conflated
+    in the UI: `models` is routing config (what the router sends here), `installed`
+    is pulled to disk, `loaded` is in memory this second. A model can be served and
+    installed but not loaded — Ollama only loads it when a request arrives.
+
     The Cockpit Nodes tab renders from this (server-side so there's no CORS)."""
     out = []
     for node in _load_nodes():
@@ -1590,6 +1597,7 @@ async def api_nodes():
             "models":   list(node.get("models") or []),   # models this node SERVES (routing)
             "reachable": False,
             "installed": [],                               # models actually pulled on the node
+            "loaded":   [],                                # resident right now: [{name, vram_mb}]
         }
         if url:
             try:
@@ -1600,6 +1608,17 @@ async def api_nodes():
                 entry["reachable"] = True
             except Exception:
                 pass
+            if entry["reachable"]:
+                try:
+                    ps = await _ext_client.get(f"{url}/api/ps", timeout=5.0)
+                    ps.raise_for_status()
+                    entry["loaded"] = [
+                        {"name": m.get("name") or m.get("model"),
+                         "vram_mb": round((m.get("size_vram") or 0) / 1048576)}
+                        for m in ps.json().get("models", []) if (m.get("name") or m.get("model"))
+                    ]
+                except Exception:
+                    pass
         out.append(entry)
     return JSONResponse({"nodes": out})
 

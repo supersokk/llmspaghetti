@@ -61,6 +61,39 @@ const SRC_FRESH =
 
 // Ollama URL (http://host:11434) → bare host for SSH.
 const hostFromUrl = (url) => (url || "").replace(/^https?:\/\//, "").replace(/[:/].*$/, "");
+
+// Hardware stats over SSH. Emits raw lines under markers and we parse here — awk
+// would need single quotes, and the whole command rides inside ssh '…'.
+const STATS_CMD =
+  "echo @VRAM; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1; " +
+  "echo @RAM; free -m | grep -i ^Mem:; " +
+  "echo @DISK; df -BG / | tail -1";
+
+function parseStats(out) {
+  const sec = { VRAM: "", RAM: "", DISK: "" };
+  let cur = null;
+  for (const raw of (out || "").split("\n")) {
+    const l = raw.trim();
+    if (l.startsWith("@")) { cur = l.slice(1); continue; }
+    if (cur && l && !sec[cur]) sec[cur] = l;
+  }
+  const s = {};
+  // "3200, 8192" (MiB)
+  const v = sec.VRAM.split(",").map(x => parseInt(x, 10));
+  if (v.length === 2 && !isNaN(v[0]) && !isNaN(v[1]) && v[1] > 0)
+    s.vram = { used: v[0] / 1024, total: v[1] / 1024 };
+  // "Mem:  15872  1234  ..."  → total used
+  const m = sec.RAM.split(/\s+/);
+  if (m.length >= 3 && !isNaN(+m[1]) && +m[1] > 0)
+    s.ram = { used: +m[2] / 1024, total: +m[1] / 1024 };
+  // "/dev/sda1  234G  40G  183G  18% /" → size used
+  const d = sec.DISK.split(/\s+/);
+  if (d.length >= 4) {
+    const size = parseFloat(d[1]), used = parseFloat(d[2]);
+    if (!isNaN(size) && !isNaN(used) && size > 0) s.disk = { used, total: size };
+  }
+  return s;
+}
 // SSH to a node as root with the core key. accept-new auto-trusts a new LAN host key
 // (avoids an interactive prompt that would hang); BatchMode fails fast if unauthorized.
 const sshBase = (host) =>
@@ -194,6 +227,27 @@ export default function Nodes() {
       setAlert({ type: "err", msg: `${model} is already pulling on ${node.id}` });
   };
 
+  // Delete a model from a node — Ollama's DELETE /api/delete, so no SSH needed.
+  // If the node was serving it, drop it from nodes.yaml too, or routing would keep
+  // sending that model to a node that no longer has it.
+  const deleteModel = async (node, model) => {
+    if (!confirm(`Delete ${model} from ${node.id}?\n\nRemoves the model files from the node's disk. It can be pulled again later.`))
+      return;
+    setBusy(true);
+    try {
+      await run(`curl -sf -X DELETE ${node.url}/api/delete -d '{"model":"${model}"}'`);
+      if ((node.models || []).includes(model)) {
+        await cockpit.file(NODES_PATH, { superuser: "try" }).replace(serializeNodes(
+          nodes.map(n => n.id !== node.id ? stripLive(n)
+            : { id: n.id, url: n.url, models: (n.models || []).filter(m => m !== model) })));
+      }
+      setAlert({ type: "ok", msg: `${model} deleted from ${node.id}` });
+      await load();
+    } catch (e) {
+      setAlert({ type: "err", msg: `Could not delete ${model} from ${node.id}: ${e.message || e}` });
+    } finally { setBusy(false); }
+  };
+
   // Push an install/control action to a node over SSH. Runs through the shared job
   // manager so a multi-minute driver install survives a tab switch and shows in
   // the Downloads tab.
@@ -265,7 +319,7 @@ export default function Nodes() {
               job={dl.active.find(j => j.node === node.id && j.kind === "job")}
               lastJob={dl.history.find(h => h.node === node.id && h.kind === "job")}
               onRemove={() => removeNode(node.id)} onToggle={m => toggleServe(node, m)}
-              onPull={m => pullModel(node, m)}
+              onPull={m => pullModel(node, m)} onDelete={m => deleteModel(node, m)}
               onAction={(label, remote, doneMsg) => pushAction(node, label, remote, doneMsg)} />
           ))}
         </div>
@@ -274,15 +328,33 @@ export default function Nodes() {
   );
 }
 
-function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, onPull, onAction }) {
+function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, onPull, onDelete, onAction }) {
   const [pm, setPm] = useState("");
   const [ssh, setSsh] = useState(null);   // null | "testing" | { ok, out }
+  const [stats, setStats] = useState(null);
   const served = new Set(node.models || []);
   const installed = node.installed || [];
+  // Resident RIGHT NOW (node's /api/ps) — distinct from served (routing config) and
+  // installed (on disk). Ollama only loads a model when a request arrives, so a
+  // served+installed model shows nothing here until it's actually used.
+  const loaded = new Map((node.loaded || []).map(l => [l.name, l.vram_mb]));
   // Models the node is set to serve but hasn't actually pulled yet — worth flagging.
   const missing = (node.models || []).filter(m => !installed.includes(m));
 
   const host = hostFromUrl(node.url);
+
+  // Hardware stats need SSH (Ollama's API can't report total VRAM / RAM / disk).
+  // Poll slowly — it's a login per refresh.
+  useEffect(() => {
+    if (!hasKey || !node.reachable) { setStats(null); return; }
+    let alive = true;
+    const tick = () => run(`${sshBase(host)} '${STATS_CMD}'`)
+      .then(out => { if (alive) setStats(parseStats(out)); })
+      .catch(() => { if (alive) setStats(null); });
+    tick();
+    const t = setInterval(tick, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [hasKey, node.reachable, host]);
   const testSsh = () => {
     setSsh("testing");
     run(sshBase(host) +
@@ -313,29 +385,62 @@ function NodeCard({ node, pull, job, lastJob, busy, hasKey, onRemove, onToggle, 
         </div>
       )}
 
+      {/* Hardware — what the node actually has left */}
+      {stats && (
+        <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
+          {stats.vram && <Meter label="VRAM" used={stats.vram.used} total={stats.vram.total} unit="GB" />}
+          {stats.ram  && <Meter label="RAM"  used={stats.ram.used}  total={stats.ram.total}  unit="GB" />}
+          {stats.disk && <Meter label="Disk" used={stats.disk.used} total={stats.disk.total} unit="GB" />}
+        </div>
+      )}
+
       <div style={{ fontSize: "0.72rem", color: C.dim, textTransform: "uppercase",
                     letterSpacing: "0.05em", marginBottom: "0.4rem" }}>
-        Installed models {node.reachable ? `(${installed.length})` : "(node unreachable)"}
+        Models on this node {node.reachable ? `(${installed.length})` : "(node unreachable)"}
       </div>
       {installed.length === 0 ? (
         <div style={{ fontSize: "0.82rem", color: C.dim, marginBottom: "0.6rem" }}>
           {node.reachable ? "No models pulled on this node yet — pull one below." : "—"}
         </div>
       ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.7rem" }}>
-          {installed.map(m => {
-            const on = served.has(m);
-            return (
-              <button key={m} onClick={() => onToggle(m)} disabled={busy} title={on ? "Serving — click to stop" : "Click to serve (route this model here)"}
-                style={{ ...pill, cursor: busy ? "wait" : "pointer",
-                         background: on ? "rgba(47,129,247,.16)" : C.bg,
-                         border: `1px solid ${on ? C.accent : C.border}`,
-                         color: on ? C.accent2 : C.dim }}>
-                {on ? "✓ " : ""}{m}
-              </button>
-            );
-          })}
-        </div>
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.4rem" }}>
+            {installed.map(m => {
+              const on = served.has(m);
+              const vram = loaded.get(m);
+              return (
+                <span key={m} style={{ display: "inline-flex", alignItems: "center",
+                                       borderRadius: 16, overflow: "hidden",
+                                       background: on ? "rgba(47,129,247,.16)" : C.bg,
+                                       border: `1px solid ${on ? C.accent : C.border}` }}>
+                  <button onClick={() => onToggle(m)} disabled={busy}
+                    title={on ? "Serving — click to stop routing here" : "Click to serve (route this model to this node)"}
+                    style={{ ...pill, background: "transparent", border: "none",
+                             cursor: busy ? "wait" : "pointer",
+                             color: on ? C.accent2 : C.dim }}>
+                    {on ? "✓ " : ""}{m}
+                    {vram != null && (
+                      <span style={{ color: C.green, marginLeft: 6 }}>
+                        ● {(vram / 1024).toFixed(1)}GB
+                      </span>
+                    )}
+                  </button>
+                  <button onClick={() => onDelete(m)} disabled={busy} title={`Delete ${m} from the node`}
+                    style={{ background: "transparent", border: "none", color: C.dim,
+                             cursor: busy ? "wait" : "pointer", fontSize: "0.8rem",
+                             padding: "0.22rem 0.5rem 0.22rem 0.1rem", fontFamily: "inherit" }}>
+                    ✕
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: "0.72rem", color: C.dim, marginBottom: "0.7rem" }}>
+            <span style={{ color: C.accent2 }}>✓ serving</span> = the router routes this model here ·{" "}
+            <span style={{ color: C.green }}>● loaded</span> = in the node's VRAM right now
+            (Ollama loads a model on first request) · <strong>✕</strong> deletes it from the node
+          </div>
+        </>
       )}
 
       {/* Pull a model onto this node */}
@@ -500,6 +605,25 @@ function SshBanner({ pubkey, show, onToggle, onGen, busy }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function Meter({ label, used, total, unit }) {
+  const pct = total > 0 ? Math.min(100, Math.round(used / total * 100)) : 0;
+  const color = pct >= 90 ? C.red : pct >= 75 ? C.yellow : C.green;
+  return (
+    <div style={{ minWidth: 140, flex: "0 1 170px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem",
+                    color: C.dim, marginBottom: 3 }}>
+        <span>{label}</span>
+        <span style={{ fontFamily: "monospace", color: C.text }}>
+          {used.toFixed(1)}/{total.toFixed(1)} {unit}
+        </span>
+      </div>
+      <div style={{ height: 5, background: C.border, borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, transition: "width .3s" }} />
+      </div>
     </div>
   );
 }
