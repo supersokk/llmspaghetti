@@ -63,6 +63,83 @@ const run = (cmd, opts = {}) => new Promise((res) => {
   p.then(() => res(out.trim())).catch(() => res(""));
 });
 
+// ── ComfyUI workflow import ───────────────────────────────────────────────────
+// The router drives ComfyUI by filling a template (config/image-workflows/<family>
+// .json) with {{TOKENS}} — so ANY graph you can build in ComfyUI can become an
+// engine. These turn a raw ComfyUI "Export (API)" file into such a template.
+
+const FILE_RE = /\.(safetensors|ckpt|pt|pth|bin|sft|gguf)$/i;
+
+// Auto-tokenise a ComfyUI API graph. Which CLIPTextEncode is the positive prompt
+// is NOT guessable from the node itself — we resolve it from the sampler's
+// positive/negative links, which is exact.
+function tokenizeWorkflow(g) {
+  const wf = JSON.parse(JSON.stringify(g));
+  const applied = new Set();
+  const set = (node, key, token) => {
+    if (node && node.inputs && key in node.inputs && !Array.isArray(node.inputs[key])) {
+      node.inputs[key] = token; applied.add(token);
+    }
+  };
+  const linked = (v) => (Array.isArray(v) ? wf[v[0]] : null);
+
+  for (const node of Object.values(wf)) {
+    const ct = node.class_type || "";
+    if (/KSampler|SamplerCustom/i.test(ct)) {
+      set(node, "seed", "{{SEED}}"); set(node, "noise_seed", "{{SEED}}");
+      set(node, "steps", "{{STEPS}}"); set(node, "cfg", "{{CFG}}");
+      // Positive/negative resolved through the sampler's own links — exact.
+      const pos = linked(node.inputs && node.inputs.positive);
+      const neg = linked(node.inputs && node.inputs.negative);
+      if (pos && /CLIPTextEncode/i.test(pos.class_type || "")) set(pos, "text", "{{PROMPT}}");
+      if (neg && /CLIPTextEncode/i.test(neg.class_type || "")) set(neg, "text", "{{NEGATIVE}}");
+    }
+    if (/CheckpointLoaderSimple|CheckpointLoader/i.test(ct)) set(node, "ckpt_name", "{{MODEL}}");
+    if (/EmptyLatentImage|EmptySD3LatentImage/i.test(ct)) {
+      set(node, "width", "{{WIDTH}}"); set(node, "height", "{{HEIGHT}}");
+    }
+    if (/FluxGuidance/i.test(ct)) set(node, "guidance", "{{GUIDANCE}}");
+  }
+  return { wf, applied: [...applied] };
+}
+
+// Validate + report. We refuse to import a graph that silently ignores the user's
+// prompt or returns no image — those fail at render time with a baffling message.
+function inspectWorkflow(raw, installedSet) {
+  const r = { errors: [], warnings: [], applied: [], models: [], missing: [], wf: null };
+  let g;
+  try { g = JSON.parse(raw); } catch (e) { r.errors.push(`Not valid JSON: ${e.message}`); return r; }
+  if (!g || typeof g !== "object" || Array.isArray(g)) { r.errors.push("Expected a JSON object."); return r; }
+  const nodes = Object.values(g);
+  if (!nodes.length || !nodes.every(n => n && n.class_type && n.inputs)) {
+    r.errors.push(
+      "This isn't a ComfyUI API graph. In ComfyUI use Workflow → Export (API) — " +
+      "the normal Save exports the UI graph, which has a different shape and won't run.");
+    return r;
+  }
+  const already = /\{\{PROMPT\}\}/.test(raw);
+  const t = already ? { wf: g, applied: [] } : tokenizeWorkflow(g);
+  r.wf = t.wf; r.applied = t.applied;
+  const filled = JSON.stringify(r.wf);
+
+  if (!/\{\{PROMPT\}\}/.test(filled))
+    r.errors.push("No {{PROMPT}} — the chat message would be ignored and every image would be the same. " +
+                  "Couldn't auto-detect the positive prompt; set it by hand.");
+  if (!Object.values(r.wf).some(n => /SaveImage/i.test(n.class_type || "")))
+    r.errors.push("No SaveImage node — the router reads the result from ComfyUI's history, so nothing would come back.");
+  if (!/\{\{MODEL\}\}/.test(filled))
+    r.warnings.push("No {{MODEL}} — this graph pins its own checkpoint, so the Image tab's active model won't apply to it.");
+  if (!/\{\{SEED\}\}/.test(filled))
+    r.warnings.push("No {{SEED}} — the seed is fixed, so repeated prompts will return an identical image.");
+
+  // Model files this graph needs, and which are missing on the ComfyUI host.
+  for (const n of Object.values(r.wf))
+    for (const v of Object.values(n.inputs || {}))
+      if (typeof v === "string" && FILE_RE.test(v) && !r.models.includes(v)) r.models.push(v);
+  r.missing = r.models.filter(m => !installedSet.has(m));
+  return r;
+}
+
 // Sensible render defaults per family, applied when activating a custom checkpoint.
 const FAMILY_DEFAULTS = {
   sd15: { size: 512,  steps: 20, cfg: 7.0, guidance: 3.5 },
@@ -128,16 +205,25 @@ export default function ImageGen() {
   const [customFamily, setCustomFamily] = useState({});   // {modelFile: family} for Installed section
   const [nodes, setNodes]       = useState([]);           // compute nodes image gen can be sent to
   const [pendingHost, setPendingHost] = useState(null);   // "Run on" pick awaiting 💾 Save
+  const [families, setFamilies] = useState([]);           // workflow templates the router can drive
+  const [wfOpen, setWfOpen]     = useState(false);        // import-workflow panel
+  const [wfName, setWfName]     = useState("");
+  const [wfUrl, setWfUrl]       = useState("");
+  const [wfJson, setWfJson]     = useState("");
+  const [wfReport, setWfReport] = useState(null);         // inspectWorkflow() result
 
   const loadAll = useCallback(async () => {
-    const [cat, conf, arch, nds] = await Promise.all([
+    const [cat, conf, arch, nds, wfs] = await Promise.all([
       rget("/api/image-engines"), rget("/api/image-config"), rget("/api/image-architectures"),
-      rget("/api/nodes"),
+      rget("/api/nodes"), rget("/api/image-workflows"),
     ]);
     setCatalog(cat && cat.engines ? cat : { tiers: {}, engines: [] });
     if (conf && conf.config) setCfg(conf.config);
     setArchs((arch && arch.architectures) || []);
     setNodes((nds && nds.nodes) || []);
+    // Families = the templates actually on disk, so an imported workflow shows up
+    // in the family picker (arch packs are only one way a template gets there).
+    setFamilies((wfs && wfs.families) || []);
 
     // Optional HuggingFace token (from Settings) — attached to downloads to unlock
     // gated/private repos. Read best-effort; absent for public models is fine.
@@ -263,6 +349,61 @@ export default function ImageGen() {
     const f = eng.files[0];
     downloadFile(eng.id, f.dest, f.url, f.size_gb ? `${f.size_gb} GB` : "",
                  `${eng.name} downloaded — click Activate to use it.`);
+  };
+
+  // ── Import a ComfyUI workflow as a routable family ──────────────────────────
+  // Fetch a workflow JSON by URL (server-side curl — no CORS, and it handles the
+  // raw links people paste from GitHub/Civitai/OpenArt).
+  const fetchWorkflowUrl = async () => {
+    const u = wfUrl.trim();
+    if (!u) return;
+    setAlert(null);
+    const raw = await run(`curl -sfL --max-time 25 '${u.replace(/'/g, "")}'`);
+    if (!raw) { setAlert({ type: "err", msg: "Couldn't fetch that URL (or it returned nothing)." }); return; }
+    setWfJson(raw);
+    setWfReport(inspectWorkflow(raw, installed));
+    if (!wfName.trim()) {
+      const guess = (u.split("/").pop() || "").replace(/\.json.*$/i, "").replace(/[^A-Za-z0-9._-]/g, "-");
+      if (guess) setWfName(guess.toLowerCase());
+    }
+  };
+
+  const readWorkflowFile = (file) => {
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      const raw = String(fr.result || "");
+      setWfJson(raw);
+      setWfReport(inspectWorkflow(raw, installed));
+      if (!wfName.trim())
+        setWfName(file.name.replace(/\.json$/i, "").replace(/[^A-Za-z0-9._-]/g, "-").toLowerCase());
+    };
+    fr.readAsText(file);
+  };
+
+  const importWorkflow = async () => {
+    const name = wfName.trim().toLowerCase();
+    if (!/^[a-z0-9._-]+$/.test(name)) {
+      setAlert({ type: "err", msg: "Family name: lowercase letters, digits, dots, dashes, underscores." });
+      return;
+    }
+    const rep = wfReport && wfReport.wf ? wfReport : inspectWorkflow(wfJson, installed);
+    if (!rep.wf || rep.errors.length) {
+      setWfReport(rep);
+      setAlert({ type: "err", msg: "Fix the problems below before importing." });
+      return;
+    }
+    try {
+      await cockpit.file(`/opt/llmspaghetti/config/image-workflows/${name}.json`, { superuser: "try" })
+        .replace(JSON.stringify(rep.wf, null, 2) + "\n");
+      setAlert({ type: "ok", msg: rep.missing.length
+        ? `Imported "${name}". It still needs: ${rep.missing.join(", ")} — fetch them with “Add from HuggingFace” above (they go to the box running ComfyUI).`
+        : `Imported "${name}" — pick it as the family on a checkpoint below to use it.` });
+      setWfOpen(false); setWfJson(""); setWfUrl(""); setWfReport(null); setWfName("");
+      await loadAll();
+    } catch (e) {
+      setAlert({ type: "err", msg: `Could not write the template: ${(e && e.message) || e}` });
+    }
   };
 
   // Inspect a HuggingFace repo → list its .safetensors with inferred ComfyUI folder.
@@ -460,6 +601,9 @@ export default function ImageGen() {
                  padding: "1rem 1.25rem", marginBottom: "1rem" };
   const label = { fontSize: "0.72rem", fontWeight: 600, color: C.dim,
                   textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" };
+  const inputStyle = { background: C.bg, border: `1px solid ${C.border}`, color: C.text,
+                       borderRadius: 6, padding: "0.4rem 0.6rem", fontSize: "0.8rem",
+                       fontFamily: "inherit", outline: "none" };
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: 1000, margin: "0 auto" }}>
@@ -684,6 +828,118 @@ export default function ImageGen() {
         );
       })}
 
+      {/* Import a ComfyUI workflow → a routable family */}
+      <div style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={label}>Import ComfyUI workflow</div>
+          <button onClick={() => setWfOpen(v => !v)}
+            style={{ background: wfOpen ? C.surface2 : C.accent, color: wfOpen ? C.text : "#fff",
+                     border: wfOpen ? `1px solid ${C.border}` : "none", borderRadius: 6,
+                     padding: "0.35rem 0.8rem", fontSize: "0.8rem", fontWeight: 600,
+                     cursor: "pointer", fontFamily: "inherit" }}>
+            {wfOpen ? "Close" : "+ Import workflow"}
+          </button>
+        </div>
+        <div style={{ fontSize: "0.78rem", color: C.dim, marginTop: "0.4rem" }}>
+          Build a graph in ComfyUI{comfy.url ? ` (${comfy.url})` : ""}, then{" "}
+          <strong>Workflow → Export (API)</strong> and drop the JSON here. We tokenise it
+          ({"{{PROMPT}}"}, {"{{MODEL}}"}, {"{{SEED}}"}…) so the router can drive it — it becomes a
+          family you can pick on any checkpoint. Custom nodes must be installed on the box
+          running ComfyUI.
+          {families.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              Installed families:{" "}
+              <span style={{ fontFamily: "monospace", color: C.accent2 }}>{families.join(" · ")}</span>
+            </div>
+          )}
+        </div>
+
+        {wfOpen && (
+          <div style={{ marginTop: "0.9rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+              <input value={wfName} onChange={e => setWfName(e.target.value)}
+                placeholder="family name (e.g. my-sdxl-hires)"
+                style={{ ...inputStyle, flex: "0 1 240px" }} />
+              <input type="file" accept=".json,application/json"
+                onChange={e => readWorkflowFile(e.target.files && e.target.files[0])}
+                style={{ fontSize: "0.78rem", color: C.dim }} />
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input value={wfUrl} onChange={e => setWfUrl(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && fetchWorkflowUrl()}
+                placeholder="…or paste a URL to a workflow API .json (raw GitHub, Civitai, …)"
+                style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={fetchWorkflowUrl} disabled={!wfUrl.trim()}
+                style={{ background: C.surface2, color: C.text, border: `1px solid ${C.border}`,
+                         borderRadius: 6, padding: "0.4rem 0.8rem", fontSize: "0.8rem",
+                         fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Fetch
+              </button>
+            </div>
+            <textarea value={wfJson}
+              onChange={e => { setWfJson(e.target.value); setWfReport(null); }}
+              onBlur={() => wfJson.trim() && setWfReport(inspectWorkflow(wfJson, installed))}
+              placeholder="…or paste the exported API JSON here"
+              rows={7}
+              style={{ ...inputStyle, fontFamily: "monospace", fontSize: "0.74rem", resize: "vertical" }} />
+
+            {wfReport && (
+              <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+                            padding: "0.7rem 0.85rem", fontSize: "0.78rem" }}>
+                {wfReport.errors.map((e, i) => (
+                  <div key={`e${i}`} style={{ color: C.red, marginBottom: 4 }}>✗ {e}</div>
+                ))}
+                {wfReport.warnings.map((w, i) => (
+                  <div key={`w${i}`} style={{ color: C.yellow, marginBottom: 4 }}>⚠ {w}</div>
+                ))}
+                {!wfReport.errors.length && (
+                  <div style={{ color: C.green, marginBottom: 4 }}>
+                    ✓ Valid ComfyUI API graph — ready to import
+                  </div>
+                )}
+                {wfReport.applied.length > 0 && (
+                  <div style={{ color: C.dim, marginBottom: 4 }}>
+                    Tokenised:{" "}
+                    <span style={{ fontFamily: "monospace", color: C.accent2 }}>
+                      {wfReport.applied.join(" ")}
+                    </span>
+                  </div>
+                )}
+                {wfReport.models.length > 0 && (
+                  <div style={{ color: C.dim }}>
+                    Needs on {comfy.host && comfy.host !== "local" ? comfy.host : "this box"}:{" "}
+                    {wfReport.models.map(m => (
+                      <span key={m} style={{ fontFamily: "monospace",
+                                             color: wfReport.missing.includes(m) ? C.yellow : C.green }}>
+                        {wfReport.missing.includes(m) ? "⚠ " : "✓ "}{m}{" "}
+                      </span>
+                    ))}
+                    {wfReport.missing.length > 0 && (
+                      <div style={{ color: C.yellow, marginTop: 4 }}>
+                        Missing files — grab them with “Add from HuggingFace” below; they download
+                        to the box running ComfyUI. (A checkpoint bound to {"{{MODEL}}"} is supplied
+                        by the Image tab, so it needn't be listed here.)
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <button onClick={importWorkflow}
+                disabled={!wfJson.trim() || !wfName.trim() || !!(wfReport && wfReport.errors.length)}
+                style={{ background: C.green, color: "#fff", border: "none", borderRadius: 6,
+                         padding: "0.45rem 1rem", fontSize: "0.82rem", fontWeight: 600,
+                         cursor: "pointer", fontFamily: "inherit",
+                         opacity: (!wfJson.trim() || !wfName.trim() || (wfReport && wfReport.errors.length)) ? 0.5 : 1 }}>
+                Import as family
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Architecture packs — install support for a model family (nodes + template) */}
       {archs.length > 0 && (
         <div style={card}>
@@ -763,8 +1019,13 @@ export default function ImageGen() {
                   <select value={fam} onChange={e => setCustomFamily(o => ({ ...o, [m]: e.target.value }))}
                     style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text,
                              borderRadius: 6, fontSize: "0.78rem", padding: "0.25rem 0.4rem", cursor: "pointer" }}>
-                    {(archs.filter(a => a.installed).length
-                        ? archs.filter(a => a.installed)
+                    {/* Every template on disk — arch packs AND imported workflows. Sourced
+                        from /api/image-workflows so an import shows up here immediately. */}
+                    {(families.length
+                        ? families.map(id => {
+                            const a = archs.find(x => x.id === id);
+                            return { id, name: (a && a.name) || id };
+                          })
                         : [{ id: "sd15", name: "SD 1.5" }, { id: "sdxl", name: "SDXL" }, { id: "flux", name: "Flux" }]
                      ).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
