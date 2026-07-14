@@ -64,13 +64,23 @@ const hostFromUrl = (url) => (url || "").replace(/^https?:\/\//, "").replace(/[:
 
 // Hardware stats over SSH. Emits raw lines under markers and we parse here — awk
 // would need single quotes, and the whole command rides inside ssh '…'.
+//
+// VRAM has TWO sources because nvidia-smi doesn't exist on an AMD box, and our
+// default AMD path is Vulkan (mesa) — which does NOT install rocm-smi either. The
+// amdgpu kernel driver exposes VRAM in sysfs with no extra tooling, so that's the
+// AMD source. With several cards (iGPU + dGPU), take the one with the most VRAM —
+// that's the compute GPU, not the display iGPU.
 const STATS_CMD =
   "echo @VRAM; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1; " +
+  "echo @AMDVRAM; for d in /sys/class/drm/card*/device; do " +
+  "if [ -r $d/mem_info_vram_total ]; then " +
+  "echo $(cat $d/mem_info_vram_used 2>/dev/null || echo 0) $(cat $d/mem_info_vram_total); " +
+  "fi; done | sort -k2 -n | tail -1; " +
   "echo @RAM; free -m | grep -i ^Mem:; " +
   "echo @DISK; df -BG / | tail -1";
 
 function parseStats(out) {
-  const sec = { VRAM: "", RAM: "", DISK: "" };
+  const sec = { VRAM: "", AMDVRAM: "", RAM: "", DISK: "" };
   let cur = null;
   for (const raw of (out || "").split("\n")) {
     const l = raw.trim();
@@ -78,10 +88,16 @@ function parseStats(out) {
     if (cur && l && !sec[cur]) sec[cur] = l;
   }
   const s = {};
-  // "3200, 8192" (MiB)
+  // NVIDIA: "3200, 8192" (MiB)
   const v = sec.VRAM.split(",").map(x => parseInt(x, 10));
   if (v.length === 2 && !isNaN(v[0]) && !isNaN(v[1]) && v[1] > 0)
     s.vram = { used: v[0] / 1024, total: v[1] / 1024 };
+  // AMD (amdgpu sysfs): "<used> <total>" in BYTES. Only if nvidia-smi gave nothing.
+  if (!s.vram) {
+    const a = sec.AMDVRAM.split(/\s+/).map(Number);
+    if (a.length === 2 && a.every(n => !isNaN(n)) && a[1] > 0)
+      s.vram = { used: a[0] / 1073741824, total: a[1] / 1073741824 };
+  }
   // "Mem:  15872  1234  ..."  → total used
   const m = sec.RAM.split(/\s+/);
   if (m.length >= 3 && !isNaN(+m[1]) && +m[1] > 0)
