@@ -336,6 +336,7 @@ function RoutingLog() {
   const [corrections, setCorrections] = useState({});
   const [loading, setLoading]         = useState(true);
   const [busyId, setBusyId]           = useState(null);
+  const [openVotes, setOpenVotes]     = useState(null);  // log row whose votes are expanded
   const [note, setNote]               = useState(null);
 
   const refresh = useCallback(async () => {
@@ -433,17 +434,26 @@ function RoutingLog() {
           <tbody>
             {log.map((entry, i) => {
               const corrected = entry.id ? corrections[normalizeMsg(entry.message)] : null;
+              const votes     = entry.votes || [];
+              const showVotes = openVotes === (entry.id || i);
               return (
-                <tr key={entry.id || i} style={{ borderBottom: `1px solid ${C.border}20` }}>
+                <React.Fragment key={entry.id || i}>
+                <tr style={{ borderBottom: votes.length && showVotes ? "none" : `1px solid ${C.border}20` }}>
                   <td style={{ padding: "0.4rem 0.6rem", color: C.dim, whiteSpace: "nowrap" }}>
                     {new Date(entry.ts * 1000).toLocaleTimeString()}
                   </td>
                   <td style={{ padding: "0.4rem 0.6rem" }}>
-                    <span style={{
-                      fontSize: "0.72rem", fontWeight: 600, color: tierColor(entry.tier),
-                      background: `${tierColor(entry.tier)}18`,
-                      padding: "0.15rem 0.5rem", borderRadius: "20px",
-                    }}>{entry.tier}</span>
+                    {/* The tier badge is the "why?" affordance — click to see the
+                        votes that produced this decision. */}
+                    <span
+                      onClick={() => votes.length && setOpenVotes(showVotes ? null : (entry.id || i))}
+                      title={votes.length ? "Show the votes behind this decision" : ""}
+                      style={{
+                        fontSize: "0.72rem", fontWeight: 600, color: tierColor(entry.tier),
+                        background: `${tierColor(entry.tier)}18`,
+                        padding: "0.15rem 0.5rem", borderRadius: "20px",
+                        cursor: votes.length ? "pointer" : "default",
+                      }}>{entry.tier}{votes.length ? (showVotes ? " ▾" : " ▸") : ""}</span>
                   </td>
                   <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600, color: C.text }}>
                     {ROLE_META[entry.role]?.icon} {entry.role}
@@ -469,6 +479,38 @@ function RoutingLog() {
                     />
                   </td>
                 </tr>
+                {votes.length > 0 && showVotes && (
+                  <tr style={{ borderBottom: `1px solid ${C.border}20` }}>
+                    <td colSpan={6} style={{ padding: "0 0.6rem 0.6rem 0.6rem" }}>
+                      <div style={{ background: C.bg, border: `1px solid ${C.border}`,
+                                    borderRadius: 6, padding: "0.5rem 0.7rem" }}>
+                        <div style={{ fontSize: "0.7rem", color: C.dim, marginBottom: 4 }}>
+                          Why <strong style={{ color: C.text }}>{entry.role}</strong>? — each voter's
+                          own view. <em>conf</em> = how sure of the role, <em>cov</em> = how much of
+                          the message it actually understood.
+                        </div>
+                        {votes.map((v, vi) => (
+                          <div key={vi} style={{ display: "flex", gap: "0.6rem", alignItems: "baseline",
+                                                 fontSize: "0.76rem", padding: "0.15rem 0" }}>
+                            <span style={{ fontFamily: "monospace", fontWeight: 700, minWidth: 62,
+                                           color: v.role === entry.role ? C.green : C.dim }}>
+                              {v.voter}
+                            </span>
+                            <span style={{ minWidth: 74, color: v.role ? C.text : C.dim }}>
+                              {v.role || "—"}
+                            </span>
+                            <span style={{ fontFamily: "monospace", color: C.dim, minWidth: 118 }}>
+                              conf {Number(v.confidence ?? 0).toFixed(2)} · cov{" "}
+                              {v.coverage == null ? "n/a" : Number(v.coverage).toFixed(2)}
+                            </span>
+                            <span style={{ color: C.dim }}>{v.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
