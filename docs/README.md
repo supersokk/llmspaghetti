@@ -28,6 +28,7 @@ folded into permanent docs once built.
 - [PLANNED-model-management.md](PLANNED-model-management.md) — making pulled models + tools routable
 - [PLANNED-background-jobs.md](PLANNED-background-jobs.md) — local GPU does grunt work in the background
 - [PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md) — how routing corrections improve the classifier
+- [PLANNED-smart-routing.md](PLANNED-smart-routing.md) — the 3-vote ensemble (keyword + kNN + opt-in context model); the arbitration framework the community model plugs into
 - [PLANNED-router-model.md](PLANNED-router-model.md) — a community-trained classifier model
 - [PLANNED-private-role.md](PLANNED-private-role.md) — the "private/local" role (paused, needs design)
 - [PLANNED-multi-gpu.md](PLANNED-multi-gpu.md) — multi-GPU model placement, CPU/RAM residency, pin-vs-pool (parts testable on 1 GPU; core deferred to 2-GPU hardware)

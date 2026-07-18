@@ -180,6 +180,7 @@ The door is open. 🍝
 
 ## Related documents
 
+- [PLANNED-smart-routing.md](PLANNED-smart-routing.md) — the 3-vote ensemble this model plugs into as a swappable context model
 - [eval/README.md](../eval/README.md) — how the eval harness works
 - [community/fixtures/README.md](../community/fixtures/README.md) — how to contribute fixtures
 - [docs/PLANNED-routing-fixture-flywheel.md](PLANNED-routing-fixture-flywheel.md) — the full flywheel design
