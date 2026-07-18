@@ -1706,6 +1706,43 @@ async def api_routing_mode():
     })
 
 
+@app.get("/api/model-usage")
+async def api_model_usage():
+    """Which models the router depends on, and what for — so the Models tab can
+    badge them and warn before a delete silently breaks a feature.
+
+    Derived from LIVE config, not a hardcoded list: the user can swap the context
+    model or reassign a role at any time, and a static list can't follow (the one
+    in the Models tab only knew about the embedder, so deleting the context model
+    or a role's model looked completely harmless)."""
+    cfg = _load_config()
+    usage: dict[str, list[str]] = {}
+
+    def mark(model, why: str) -> None:
+        m = str(model or "").strip()
+        if not m or m == "null":
+            return
+        usage.setdefault(m, [])
+        if why not in usage[m]:
+            usage[m].append(why)
+
+    for role, entry in (cfg.get("roles") or {}).items():
+        if isinstance(entry, dict):
+            mark(entry.get("primary"),  f"{role} role")
+            mark(entry.get("fallback"), f"{role} fallback")
+        else:
+            mark(entry, f"{role} role")
+    mark(cfg.get("default_model"), "default model")
+    if str(cfg.get("mode", "auto")) == "single":
+        mark(cfg.get("single_model"), "single-model mode")
+    mark(EMBED_MODEL, "fuzzy correction matching")
+    _ctx = _context_model_cfg()
+    if _ctx["model"]:
+        mark(_ctx["model"],
+             "context model (smart routing)" + (" — paused" if _ctx["paused"] else ""))
+    return JSONResponse({"usage": usage})
+
+
 @app.get("/api/nodes")
 async def api_nodes():
     """Compute nodes from nodes.yaml, each with live status: is its Ollama

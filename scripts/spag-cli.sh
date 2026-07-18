@@ -142,6 +142,16 @@ cmd_update() {
       cp    "$SRC_DIR/spagdesk/index.html" "$INSTALL_DIR/spagdesk/index.html" 2>/dev/null || true
       cp    "$SRC_DIR"/scripts/*.sh      "$INSTALL_DIR/scripts/"           2>/dev/null || true
 
+      # Config files are deliberately NOT copied over (that would clobber roles,
+      # keys and render settings) — but that means a NEW setting added in a release
+      # never reaches an installed box. This adds only the MISSING keys, with their
+      # comments, and never touches a value the user has set.
+      if [[ -f "$SRC_DIR/scripts/config-migrate.py" ]]; then
+        info "Checking config for new settings..."
+        python3 "$SRC_DIR/scripts/config-migrate.py" \
+          "$SRC_DIR/config" "$INSTALL_DIR/config" || warn "config migration skipped"
+      fi
+
       info "Rebuilding Cockpit plugin..."
       bash "$SRC_DIR/scripts/install-terminal.sh" || warn "Cockpit plugin rebuild failed — retry with: spag install-terminal"
 
