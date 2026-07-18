@@ -13,7 +13,8 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
   (visible footer + machine-readable `x_llmspaghetti` field), fallback-aware,
   streaming + non-streaming. Toggle with `show_provenance`. Works in every
   client. See [technical.md](docs/technical.md#provenance--show-your-work).
-- ☐ Image routing (see Phase 1)
+- ✅ **Image routing** — shipped and proven, including outsourcing renders to a GPU
+  node while the core keeps answering chat (see Phase 1 + Phase 8)
 - ✅ **Ollama-direct routing** — local models forward straight to Ollama's OpenAI
   API by their raw name (any pulled model routable, no LiteLLM alias needed);
   cloud goes via LiteLLM. Kills the alias-namespace friction.
@@ -54,8 +55,10 @@ feature designs live in the [PLANNED-* docs](docs/README.md).
 - ✅ Multi-model routing proven on GPU (code → coder, general → general)
 - ✅ `reasoning` / `code` / `fast` / `general` roles routing correctly
 - 🚧 `document` role (large-context) — classifier matches, untested
-- ☐ `image` role — detect image requests → DALL-E or ComfyUI → inline in chat,
-  saved to `/opt/llmspaghetti/images/`, served over HTTP
+- ✅ `image` role — detects image requests → ComfyUI (DALL-E as cloud fallback) →
+  inline in chat, saved to `/opt/llmspaghetti/images/`, served over HTTP. SD 1.5 /
+  SDXL / Z-Image proven; VRAM hand-off keeps chat answerable during a render; can be
+  **outsourced to a GPU node** (see Phase 8).
 - ☐ `private`/`local` role — ⏸ needs design ([PLANNED-private-role.md](docs/PLANNED-private-role.md))
 - ✅ Visible "answered by X" tag (provenance — done, see Next up)
 - ☐ Full demo in one chat session: image + reasoning + code + private + fast
@@ -155,9 +158,13 @@ Full design → [PLANNED-multi-node.md](docs/PLANNED-multi-node.md).
   `/opt/llmspaghetti-src/scripts/*.sh` (freshened first — `install-gpu-drivers.sh`
   sources `gpu-detect.sh`, so a piped lone script would break). Long installs run
   in the shared job manager, so they survive a tab switch and appear in Downloads.
-- ☐ **Per-node image routing** — the `image` role targets one local `COMFYUI_URL`,
-  so ComfyUI on a node is unreachable by the router. Needed before a
-  ComfyUI-on-node install button is anything but a dead button.
+- ✅ **Per-node image routing — PROVEN 2026-07-14.** `image.yaml` gains
+  `host: local | <node-id>`; the router resolves ComfyUI per request, and the VRAM
+  hand-off **follows the GPU** (demoting the core's models would free the wrong
+  card). Nodes tab pushes the ComfyUI install over SSH; checkpoints download
+  **onto the node**; the Image tab reports the *node's* GPU and checkpoints.
+  Verified on hardware: EliteBook (CPU core) answers general chat while the 2060S
+  node renders images — **concurrently, behind one endpoint**.
 - ☐ Optional mDNS node discovery
 - ☐ Load balancing / failover across nodes
 - ☐ **BC-250 node (CachyOS)** — niche Arch-based path for the AMD BC-250 boards;
