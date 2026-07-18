@@ -113,18 +113,48 @@ function parseConfig(yaml) {
   return cfg;
 }
 
-function serializeConfig(cfg) {
+const MANAGED_HEADER = [
+  "# LLMSpaghetti Router — Role → Model mapping",
+  "# Managed by the Routing panel. Edit with: spag config",
+  "# Model names must match model_name entries in litellm_config.yaml",
+];
+
+// This panel owns ONLY mode / single_model / roles. router_roles.yaml also holds
+// default_model, show_provenance, knn_threshold and the context_model (smart
+// routing) settings — plus whatever gets added later. Rewriting the file from just
+// the fields we know silently DELETES the rest, which un-configures the router
+// behind the user's back (it wiped smart routing the first time it shipped).
+// So: carry every unmanaged line through untouched.
+function preserveUnmanaged(prevYaml) {
+  const keep = [];
+  let inRoles = false;
+  for (const line of String(prevYaml || "").split("\n")) {
+    if (/^roles\s*:/.test(line)) { inRoles = true; continue; }
+    if (inRoles) {
+      // roles' children are indented; a blank line inside the block is fine.
+      if (line.trim() === "" || /^\s/.test(line)) continue;
+      inRoles = false;                                  // back to a top-level key
+    }
+    if (/^(mode|single_model)\s*:/.test(line)) continue;
+    if (MANAGED_HEADER.includes(line.trim())) continue; // don't duplicate on re-save
+    keep.push(line);
+  }
+  while (keep.length && keep[0].trim() === "") keep.shift();
+  while (keep.length && keep[keep.length - 1].trim() === "") keep.pop();
+  return keep;
+}
+
+function serializeConfig(cfg, prevYaml = "") {
   const { mode, single_model, roles } = cfg;
+  const kept = preserveUnmanaged(prevYaml);
   const lines = [
-    "# LLMSpaghetti Router — Role → Model mapping",
-    "# Managed by the Routing panel. Edit with: spag config",
-    "# Model names must match model_name entries in litellm_config.yaml",
+    ...MANAGED_HEADER,
     "",
     `mode: "${mode || "auto"}"`,
     `single_model: ${single_model ? `"${single_model}"` : "null"}`,
-    "",
-    "roles:",
   ];
+  if (kept.length) lines.push("", ...kept);
+  lines.push("", "roles:");
   for (const [role, entry] of Object.entries(roles)) {
     const primary  = entry?.primary  || null;
     const fallback = entry?.fallback || null;
@@ -688,19 +718,19 @@ export default function Routing() {
       },
     };
     setCfg(updated);
-    setRawYaml(serializeConfig(updated));
+    setRawYaml(serializeConfig(updated, rawYaml));
   };
 
   const handleModeChange = (mode) => {
     const updated = { ...cfg, mode };
     setCfg(updated);
-    setRawYaml(serializeConfig(updated));
+    setRawYaml(serializeConfig(updated, rawYaml));
   };
 
   const handleSingleModelChange = (model) => {
     const updated = { ...cfg, single_model: model || null };
     setCfg(updated);
-    setRawYaml(serializeConfig(updated));
+    setRawYaml(serializeConfig(updated, rawYaml));
   };
 
   const handleToolChange = (role, toolId, enabled) => {
@@ -730,7 +760,7 @@ export default function Routing() {
     setSaving(true);
     setAlert(null);
     try {
-      const yaml = view === "yaml" ? rawYaml : serializeConfig(cfg);
+      const yaml = view === "yaml" ? rawYaml : serializeConfig(cfg, rawYaml);
       await cockpit.file(ROLES_PATH, { superuser: "try" }).replace(yaml);
       setAlert({ type: "ok", msg: "Saved — router picks up changes on the next request" });
       setCfg(parseConfig(yaml));
