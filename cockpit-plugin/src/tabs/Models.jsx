@@ -61,8 +61,16 @@ const POPULAR_MODELS = [
 
 const TAG_COLOURS = { general: "badge-green", code: "badge-blue", large: "badge-yellow", small: "badge-grey" };
 
-// Models LLMSpaghetti installs for its own use — annotated so users know what
-// they are (and that they're not stray chat models to delete).
+const ROUTER_PORT = 5000;
+// Router API via Cockpit's server-side bridge — the router binds 127.0.0.1:5000 on
+// the SERVER, so a browser fetch can't reach it.
+const rget = (path) =>
+  cockpit.http(ROUTER_PORT).get(path).then(b => JSON.parse(b || "{}")).catch(() => ({}));
+
+// Extra colour for models the router installs for itself — what they ARE. Which
+// models are actually IN USE comes from the router (/api/model-usage), because it
+// depends on live config: swap the context model or reassign a role and a
+// hardcoded list is instantly wrong. This map only annotates the fixed ones.
 const SYSTEM_MODELS = {
   "nomic-embed-text": {
     label: "router",
@@ -72,6 +80,14 @@ const SYSTEM_MODELS = {
 const systemInfo = (name) => {
   const key = Object.keys(SYSTEM_MODELS).find(k => (name || "").startsWith(k));
   return key ? SYSTEM_MODELS[key] : null;
+};
+
+// Ollama reports "qwen3:0.6b"; config may say "qwen3:0.6b" or bare "qwen3".
+const usesFor = (usage, name) => {
+  if (!usage || !name) return [];
+  if (usage[name]) return usage[name];
+  const base = String(name).split(":")[0];
+  return usage[base] || [];
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -357,6 +373,7 @@ export default function Models() {
   const [hfSearching, setHfSearching] = useState(false);
   const [hfOpen, setHfOpen]         = useState({});    // {repo: [quant,...]} expanded quant lists
   const [openConfig, setOpenConfig] = useState(null);
+  const [usage, setUsage]           = useState({});   // model → ["code role", …] from the router
   const intervalRef = useRef(null);
   const runningInFlight = useRef(false);  // guard so the 4s poll can't stack up
 
@@ -400,9 +417,16 @@ export default function Models() {
     } catch { /* CPU mode — no VRAM bar */ }
   }, []);
 
+  // Which models the router depends on, and why — live config, so it follows a
+  // context-model swap or a role reassignment automatically.
+  const loadUsage = useCallback(async () => {
+    const res = await rget("/api/model-usage");
+    setUsage((res && res.usage) || {});
+  }, []);
+
   const refresh = useCallback(async () => {
-    await Promise.all([loadInstalled(), loadRunning()]);
-  }, [loadInstalled, loadRunning]);
+    await Promise.all([loadInstalled(), loadRunning(), loadUsage()]);
+  }, [loadInstalled, loadRunning, loadUsage]);
 
   useEffect(() => {
     loadGpuInfo();
@@ -443,10 +467,25 @@ export default function Models() {
   };
 
   const deleteModel = async (name) => {
-    const sys = systemInfo(name);
-    const msg = sys
-      ? `⚠ ${name} is a system model used by the router (${sys.label}).\n\n${sys.hint}\n\nDeleting it breaks that feature until you re-pull it. Delete anyway?`
-      : `Delete ${name}? This cannot be undone.`;
+    // Name the feature that breaks, at the moment of danger. Deleting an in-use
+    // model degrades SILENTLY (the router falls back and logs, nothing errors), so
+    // the warning here is the only thing standing between the user and a feature
+    // that quietly stops working.
+    const uses = usesFor(usage, name);
+    const sys  = systemInfo(name);
+    let msg;
+    if (uses.length) {
+      msg = `⚠ ${name} is in use by the router:\n\n` +
+            uses.map(u => `  • ${u}`).join("\n") +
+            `\n\nDeleting it disables ${uses.length > 1 ? "those features" : "that"} ` +
+            `until you re-pull it — the router will fall back quietly, with no error.` +
+            (sys ? `\n\n${sys.hint}` : "") +
+            `\n\nDelete anyway?`;
+    } else if (sys) {
+      msg = `⚠ ${name} is a system model used by the router (${sys.label}).\n\n${sys.hint}\n\nDeleting it breaks that feature until you re-pull it. Delete anyway?`;
+    } else {
+      msg = `Delete ${name}? This cannot be undone.`;
+    }
     if (!confirm(msg)) return;
     setBusy(b => ({ ...b, [name]: "deleting" }));
     try {
@@ -583,6 +622,7 @@ export default function Models() {
               const action    = busy[m.name];
               const isOpen    = openConfig === m.name;
               const sysInfo   = systemInfo(m.name);
+              const modelUses = usesFor(usage, m.name);
 
               return (
                 <div key={m.name} style={{ borderTop: `1px solid ${C.border}` }}>
@@ -606,6 +646,16 @@ export default function Models() {
                             🔁 {sysInfo.label}
                           </span>
                         )}
+                        {/* What breaks if this is deleted — from live router config */}
+                        {modelUses.map(u => (
+                          <span key={u} title={`The router uses ${m.name} for: ${u}`}
+                            style={{ fontSize: "0.66rem", fontWeight: 700, color: C.accent2,
+                                     background: `${C.accent}18`, border: `1px solid ${C.accent}35`,
+                                     padding: "0.1rem 0.45rem", borderRadius: "20px",
+                                     cursor: "help", whiteSpace: "nowrap", flexShrink: 0 }}>
+                            in use · {u}
+                          </span>
+                        ))}
                       </div>
                       <div style={{ fontSize: "0.74rem", color: C.dim }}>
                         {sysInfo ? sysInfo.hint : m.size}
