@@ -1727,6 +1727,14 @@ async def api_model_usage():
             usage[m].append(why)
 
     for role, entry in (cfg.get("roles") or {}).items():
+        # The image role NEVER uses its assigned model: it always routes to ComfyUI,
+        # and on failure returns an explicit error rather than falling through to a
+        # text model (deliberately — an LLM would hallucinate a *description* of the
+        # picture). So a model sitting on `image` is inert config, and reporting it
+        # as a dependency would make the delete guard cry wolf about a model whose
+        # removal breaks nothing.
+        if role == "image":
+            continue
         if isinstance(entry, dict):
             mark(entry.get("primary"),  f"{role} role")
             mark(entry.get("fallback"), f"{role} fallback")
