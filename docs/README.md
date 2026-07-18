@@ -6,6 +6,7 @@ All LLMSpaghetti documentation lives here. Start with the
 ## Guides
 
 - [install.md](install.md) — install, configure, connect tools, update, troubleshoot
+- [how-routing-works.md](how-routing-works.md) — **start here** for the smart router: keyword → memory → context model, in plain language
 - [technical.md](technical.md) — architecture, request flow, roles, components, tech stack
 
 ## Root documents
