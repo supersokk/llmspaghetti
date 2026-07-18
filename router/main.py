@@ -321,6 +321,118 @@ async def _embed(text: str) -> list | None:
         return None
 
 
+# ── Context model (smart routing, opt-in) ────────────────────────────────────
+# A small local LLM that classifies the messages keyword + kNN can't. Slice 1 of
+# docs/PLANNED-smart-routing.md: single label, on the miss path only, opt-in.
+#
+# Opt-in is the INSTALL: `context_model` set in router_roles.yaml = the tier exists.
+# `context_model_paused: true` skips it without uninstalling (the A/B switch).
+# Everything here is best-effort — if the model is missing, paused or broken, the
+# router falls back to keyword+kNN exactly as before. It can never break routing.
+_CONTEXT_ROLES = ("image", "code", "reasoning", "fast", "document", "general")
+
+_CONTEXT_PROMPT = (
+    "You are a routing classifier for an LLM gateway. Read the user's message and "
+    "choose the single best role to handle it.\n\n"
+    "image     — asking for a picture/illustration to be generated\n"
+    "code      — writing, debugging, refactoring or explaining code\n"
+    "reasoning — planning, architecture, trade-offs, deep analysis\n"
+    "document  — summarising or extracting from a long text/document\n"
+    "fast      — a short, simple factual question\n"
+    "general   — anything else, chit-chat, or genuinely unclear\n\n"
+    "Reply with ONLY this JSON: {\"role\": \"<one role from the list>\"}\n\n"
+    "Message:\n"
+)
+
+
+def _context_model_cfg() -> dict:
+    """Effective context-model settings from router_roles.yaml (hot-reloaded)."""
+    c = _load_config()
+    return {
+        "model":  (c.get("context_model") or "").strip(),
+        "device": str(c.get("context_model_device", "cpu")).lower(),
+        "paused": bool(c.get("context_model_paused", False)),
+    }
+
+
+def _context_model_active() -> str | None:
+    """The model name when the tier should run, else None (not installed/paused)."""
+    cfg = _context_model_cfg()
+    if not cfg["model"] or cfg["paused"]:
+        return None
+    return cfg["model"]
+
+
+def _context_options(device: str) -> dict:
+    """Ollama options for placement. `cpu` (default) keeps the classifier OUT of
+    VRAM so it never competes with chat/image models; `gpu` forces it in; `auto`
+    lets Ollama's scheduler decide. Same num_gpu knob the VRAM hand-off uses."""
+    if device == "cpu":
+        return {"temperature": 0, "num_gpu": 0}
+    if device == "gpu":
+        return {"temperature": 0, "num_gpu": 999}
+    return {"temperature": 0}          # auto — omit num_gpu
+
+
+async def _context_classify(message: str) -> str | None:
+    """Ask the context model for a role. Returns a valid role or None.
+
+    Never raises: a missing/paused model, a timeout, or junk output all degrade to
+    None so the caller keeps the existing behaviour. `format: json` grammar-forces
+    valid JSON, and we still validate the role against the known set — a small model
+    can emit well-formed JSON containing a made-up role."""
+    model = _context_model_active()
+    if not model or not message:
+        return None
+    cfg = _context_model_cfg()
+    try:
+        resp = await _ext_client.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model":  model,
+                # /no_think disables Qwen3-family reasoning traces; harmless on models
+                # that don't understand it (it's just prompt text to them).
+                "prompt": f"/no_think\n{_CONTEXT_PROMPT}{message[:_MSG_CAP]}",
+                "format": "json",
+                "stream": False,
+                "options": _context_options(cfg["device"]),
+                "keep_alive": -1,          # stay resident — no cold load next time
+            },
+            timeout=45.0,
+        )
+        resp.raise_for_status()
+        raw = (resp.json() or {}).get("response") or ""
+        role = str((json.loads(raw) or {}).get("role", "")).strip().lower()
+    except Exception as e:
+        log.warning(f"context model failed ({e!r}) — falling back (is {model!r} pulled?)")
+        return None
+    if role not in _CONTEXT_ROLES:
+        log.info(f"context model returned unknown role {role!r} — ignored")
+        return None
+    return role
+
+
+async def _warm_context_model() -> None:
+    """Preload the context model at startup so the first hard message doesn't pay a
+    cold load. Runs as a background task — the router must come up instantly, and
+    until this finishes routing simply uses keyword+kNN."""
+    model = _context_model_active()
+    if not model:
+        return
+    cfg = _context_model_cfg()
+    try:
+        await _ext_client.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": model, "prompt": "", "stream": False,
+                  "options": _context_options(cfg["device"]), "keep_alive": -1},
+            timeout=300.0,                 # a cold pull-from-disk can be slow
+        )
+        log.info(f"context model warm: {model} ({cfg['device']}) — smart routing active")
+    except Exception as e:
+        log.warning(f"context model {model!r} failed to warm ({e!r}) — "
+                    "smart routing inactive, keyword+kNN unaffected")
+
+
 async def _fuzzy_override(message: str) -> str | None:
     """Fuzzy (embedding kNN) match against stored corrections. Runs ONLY when
     signal+keyword missed, so it never overrides a confident classification and
@@ -1469,6 +1581,13 @@ async def lifespan(app: FastAPI):
     _load_quota_state()
     await _check_vram_budget()
     log.info(f"router ready  →  {LITELLM_URL}")
+    # Smart routing (opt-in): warm the context model in the BACKGROUND so the router
+    # comes up instantly. Until it's warm, routing uses keyword+kNN as normal.
+    _ctx_cfg = _context_model_cfg()
+    if _ctx_cfg["model"] and not _ctx_cfg["paused"]:
+        asyncio.create_task(_warm_context_model())
+    elif _ctx_cfg["model"]:
+        log.info(f"context model {_ctx_cfg['model']!r} is PAUSED — keyword+kNN only")
     _img = _image_settings()
     if _img["enabled"]:
         _where = f" on node '{_img['host']}'" if _image_node() else ""
@@ -1900,6 +2019,15 @@ async def proxy(request: Request, path: str):
                         fuzzy = await _fuzzy_override(last_msg)
                         if fuzzy:
                             role_name, tier = fuzzy, "override"
+                        else:
+                            # Context model (opt-in): last voice before the general
+                            # floor, so it only ever rescues a message that keyword
+                            # AND learned corrections both missed. Never overrides a
+                            # confident classification, and a None answer leaves the
+                            # fallback exactly as it was.
+                            ctx_role = await _context_classify(last_msg)
+                            if ctx_role:
+                                role_name, tier = ctx_role, "context"
                     primary, fallback = _model_for_role(role_name)
                     log.info(
                         f"{tier:<8} → {role_name:<10} "
