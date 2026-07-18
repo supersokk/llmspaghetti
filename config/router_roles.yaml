@@ -34,6 +34,28 @@ show_provenance: true
 # log for "fuzzy override best sim=..." near-misses.
 knn_threshold: 0.6
 
+# ── Smart routing — context model (OPT-IN) ───────────────────────────────────
+# A small local model that classifies the messages keyword + learned corrections
+# both miss. It is the LAST voice before the general floor: it never overrides a
+# confident classification, and if it's absent, paused or fails, routing falls
+# back to keyword+kNN exactly as before — it can't break routing.
+#
+# The install IS the opt-in: set a model here (and pull it) and the tier exists.
+#   spag pull qwen3:0.6b     →  context_model: "qwen3:0.6b"
+# Swappable — qwen3:0.6b, qwen3:1.7b, gemma3:1b, llama3.2:1b, or a future
+# purpose-built router model. Empty/null = off (no RAM cost, no tier).
+context_model: null
+
+# Where it runs. Default cpu keeps it OUT of VRAM so it never competes with your
+# chat/image models — it only fires on uncertain messages, so it doesn't miss the
+# GPU speed. Set gpu if you have VRAM headroom and want the lower latency.
+#   cpu (default) | gpu | auto (let Ollama decide)
+context_model_device: cpu
+
+# Pause without uninstalling — the A/B switch for "is this actually helping?".
+# Model stays on disk and resumes instantly.
+context_model_paused: false
+
 # First-boot fills these with your picked model (raw Ollama name) or a cloud
 # model_name. Assign them in the Routing panel — pick from your installed models.
 roles:
