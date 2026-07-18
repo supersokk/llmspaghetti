@@ -292,6 +292,27 @@ State *where* it helps (the hard cases), not a vague "increases hit-rate." The
 telemetry is the honest counterpart to the cost warning — since we already track which
 tier resolved each message, **show it**, and turn "trust me" into their own numbers.
 
+### Where it's surfaced — the deck front page, not buried in a settings tab
+
+The opt-in and its description must live on the **SpagDesk front page** (and the
+Cockpit **Dashboard**), not only in Routing settings — a routing upgrade nobody
+discovers is a routing upgrade nobody uses. Follow the existing dismissible-notice
+pattern (the AMD-Vulkan Dashboard notice, `localStorage`-gated):
+
+> **⚡ Smarter routing available (opt-in).** Add a small local model that catches the
+> ambiguous messages keyword + memory miss. ~0.6-1.5 GB RAM (CPU by default, off your
+> GPU). Auto-loads on startup; turn it off anytime. **[ Enable ]  [ Not now ]**
+
+- **[ Enable ]** installs + activates in one action (pull the model, then it's a core
+  tier — see *install = active* above). No second "activate" step.
+- **[ Not now ]** dismisses the notice (remembered), never nags again — routing keeps
+  working on keyword+kNN.
+- Once enabled, the front-page card flips to the **measured-value** line ("this week:
+  N misroutes prevented"), so the description becomes live proof instead of a pitch.
+
+The description is the honest contract, verbatim: *what it does · the RAM cost · CPU
+not VRAM · off anytime · swappable*. Discoverable, one-click, dismissible, never dark.
+
 ---
 
 ## What already exists vs what to build
@@ -315,6 +336,9 @@ tier resolved each message, **show it**, and turn "trust me" into their own numb
 - Config: `classifier_model`, `classifier_device`, install/pause state; startup
   warmup; per-tier resolution + calibration telemetry.
 - Routing-tab UI: opt-in install, pause/resume, device toggle, cost + hit-rate copy.
+- **Front-page opt-in card** — SpagDesk + Dashboard, dismissible-notice pattern
+  (like the AMD-Vulkan notice), one-click Enable, flips to the measured-value line
+  once on. This is the discovery surface; the Routing tab is the control surface.
 
 ### Build in slices (each shippable, opt-in, eval-gated)
 
