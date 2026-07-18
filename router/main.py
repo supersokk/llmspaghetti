@@ -1719,6 +1719,32 @@ async def api_routing_mode():
     })
 
 
+@app.get("/api/context-model")
+async def api_context_model():
+    """State of the opt-in context model, so the UI can manage it without anyone
+    hand-editing YAML: what's configured, whether it's paused, where it runs, and
+    whether the model is actually pulled (configured-but-missing is the failure
+    that otherwise only shows up as a line in the router log)."""
+    cfg = _context_model_cfg()
+    installed: list[str] = []
+    try:
+        r = await _ext_client.get(f"{OLLAMA_URL}/api/tags", timeout=5.0)
+        r.raise_for_status()
+        installed = sorted(m.get("name", "") for m in r.json().get("models", []) if m.get("name"))
+    except Exception:
+        pass
+    present = any(m == cfg["model"] or m.split(":")[0] == cfg["model"] for m in installed)
+    return JSONResponse({
+        "model":     cfg["model"],
+        "device":    cfg["device"],
+        "paused":    cfg["paused"],
+        "enabled":   bool(cfg["model"]) and not cfg["paused"],
+        "installed": bool(cfg["model"]) and present,
+        "available": installed,
+        "embed_model": EMBED_MODEL,
+    })
+
+
 @app.get("/api/model-usage")
 async def api_model_usage():
     """Which models the router depends on, and what for — so the Models tab can

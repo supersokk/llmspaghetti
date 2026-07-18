@@ -171,6 +171,22 @@ function serializeConfig(cfg, prevYaml = "") {
   return lines.join("\n") + "\n";
 }
 
+// Set one top-level key in router_roles.yaml, in place, leaving everything else
+// byte-identical. Used by the smart-routing panel so managing the context model
+// never means hand-editing YAML — and never rewrites config it doesn't own.
+// Appends the key (with a comment) only when it's genuinely absent.
+function setYamlKey(yaml, key, value, comment = "") {
+  const line = `${key}: ${value}`;
+  const re   = new RegExp(`^${key}\\s*:.*$`, "m");
+  if (re.test(yaml)) {
+    // Replace the FIRST occurrence only. A duplicated key (possible if someone
+    // hand-appended what the migration also added) is last-wins in YAML, so
+    // rewrite them all rather than leave a stale copy shadowing the new value.
+    return yaml.replace(new RegExp(`^${key}\\s*:.*$`, "gm"), line);
+  }
+  return yaml.replace(/\n*$/, "\n") + (comment ? `\n${comment}\n` : "\n") + line + "\n";
+}
+
 // ── Provider health check ─────────────────────────────────────────────────────
 async function pingModel(modelName) {
   if (!modelName || modelName === "null") return { status: "disabled", latency: null };
@@ -533,6 +549,115 @@ function RoutingLog() {
         </table>
       )}
     </>
+  );
+}
+
+// ── Smart routing (context model) panel ───────────────────────────────────────
+// The control surface for the opt-in context model: pick it, pause it, choose
+// where it runs. Everything here was previously YAML-only, which for a feature
+// described as "core" meant nobody would ever turn it on.
+function SmartRoutingPanel({ onAlert }) {
+  const [st, setSt]     = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setSt(await rget("/api/context-model").catch(() => null));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // Write one key, preserving the rest of the file (the router hot-reloads it).
+  const write = async (key, value, comment) => {
+    setBusy(true);
+    try {
+      const cur = await cockpit.file(ROLES_PATH, { superuser: "try" }).read();
+      await cockpit.file(ROLES_PATH, { superuser: "try" })
+        .replace(setYamlKey(cur || "", key, value, comment));
+      await load();
+    } catch (e) {
+      onAlert?.({ type: "err", msg: `Could not save: ${e.message || e}` });
+    } finally { setBusy(false); }
+  };
+
+  if (!st) return null;
+
+  const on      = st.enabled && st.installed;
+  const missing = st.model && !st.installed;
+  // Chat models only — the embedder can't classify, and offering it invites a
+  // confusing failure.
+  const choices = (st.available || []).filter(m => !m.startsWith(st.embed_model));
+
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${on ? C.green + "40" : C.border}`,
+                  borderRadius: "10px", padding: "1rem 1.25rem", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+        <span style={{ width: 9, height: 9, borderRadius: "50%",
+                       background: on ? C.green : missing ? C.red : C.dim }} />
+        <strong style={{ fontSize: "0.92rem" }}>Smart routing</strong>
+        <span style={{ fontSize: "0.74rem", color: on ? C.green : C.dim }}>
+          {on ? "active" : missing ? "model not installed" : st.paused ? "paused" : "off"}
+        </span>
+        <span style={{ flex: 1 }} />
+        {st.model && (
+          <button onClick={() => write("context_model_paused", st.paused ? "false" : "true")}
+            disabled={busy}
+            style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.dim,
+                     borderRadius: 6, fontSize: "0.76rem", padding: "0.25rem 0.6rem",
+                     cursor: busy ? "wait" : "pointer", fontFamily: "inherit" }}>
+            {st.paused ? "▶ Resume" : "⏸ Pause"}
+          </button>
+        )}
+      </div>
+
+      <div style={{ fontSize: "0.8rem", color: C.dim, margin: "0.5rem 0 0.75rem", lineHeight: 1.5 }}>
+        A small local model that classifies the messages keyword + learned corrections
+        both miss — the last voice before the <code>general</code> floor. Off = routing
+        falls back to keyword + memory, unchanged.{" "}
+        <a href="https://github.com/supersokk/llmspaghetti/blob/main/docs/how-routing-works.md"
+           target="_blank" rel="noreferrer" style={{ color: C.accent2 }}>How routing works →</a>
+      </div>
+
+      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={{ fontSize: "0.72rem", color: C.dim, fontWeight: 600 }}>
+          Model
+          <select value={st.model || ""} disabled={busy}
+            onChange={e => write("context_model", e.target.value ? `"${e.target.value}"` : "null")}
+            style={{ display: "block", marginTop: 4, minWidth: 200, background: C.bg,
+                     border: `1px solid ${C.border}`, color: C.text, borderRadius: 6,
+                     padding: "0.35rem 0.5rem", fontSize: "0.82rem" }}>
+            <option value="">— off (no context model) —</option>
+            {choices.map(m => <option key={m} value={m}>{m}</option>)}
+            {missing && <option value={st.model}>{st.model} (not installed)</option>}
+          </select>
+        </label>
+
+        <label style={{ fontSize: "0.72rem", color: C.dim, fontWeight: 600 }}>
+          Runs on
+          <select value={st.device || "cpu"} disabled={busy || !st.model}
+            onChange={e => write("context_model_device", e.target.value)}
+            style={{ display: "block", marginTop: 4, background: C.bg,
+                     border: `1px solid ${C.border}`, color: C.text, borderRadius: 6,
+                     padding: "0.35rem 0.5rem", fontSize: "0.82rem" }}>
+            <option value="cpu">CPU / system RAM (default)</option>
+            <option value="gpu">GPU / VRAM</option>
+            <option value="auto">Auto — let Ollama decide</option>
+          </select>
+        </label>
+      </div>
+
+      <div style={{ fontSize: "0.74rem", color: C.dim, marginTop: "0.6rem" }}>
+        {st.device === "gpu"
+          ? "⚠ On the GPU it competes with your chat/image models for VRAM. It only runs on uncertain messages, so CPU costs it little speed."
+          : "Kept off the GPU, so it never competes with your chat/image models for VRAM."}
+      </div>
+
+      {missing && (
+        <div style={{ fontSize: "0.78rem", color: C.yellow, marginTop: "0.5rem" }}>
+          ⚠ <code>{st.model}</code> isn't pulled — smart routing is inactive and routing
+          falls back to keyword + memory. Install it from the <strong>Models</strong> tab
+          (or <code>spag pull {st.model}</code>), then restart the router to warm it.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -936,6 +1061,7 @@ export default function Routing() {
       {/* Cards view */}
       {view === "cards" && (
         <>
+          <SmartRoutingPanel onAlert={setAlert} />
           <div style={{
             background: "rgba(47,129,247,0.08)", border: "1px solid rgba(47,129,247,0.2)",
             borderRadius: "8px", padding: "0.75rem 1rem",

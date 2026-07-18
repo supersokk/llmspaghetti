@@ -82,6 +82,18 @@ const systemInfo = (name) => {
   return key ? SYSTEM_MODELS[key] : null;
 };
 
+// The context model earns the same 🔁 router tag as the embedder — it's router
+// infrastructure, not a chat model — but WHICH model it is comes from config, so
+// it can't be hardcoded like nomic. Derive it from the live usage data instead.
+const routerRoleInfo = (uses) => {
+  const ctx = (uses || []).find(u => u.startsWith("context model"));
+  if (!ctx) return null;
+  return {
+    label: "router",
+    hint: "Context model used by the router to classify messages that keyword + learned corrections miss (smart routing) — not a chat model. Manage it in Routing → Smart routing.",
+  };
+};
+
 // Ollama reports "qwen3:0.6b"; config may say "qwen3:0.6b" or bare "qwen3".
 const usesFor = (usage, name) => {
   if (!usage || !name) return [];
@@ -621,8 +633,8 @@ export default function Models() {
               const isRunning = runningNames.has(m.name);
               const action    = busy[m.name];
               const isOpen    = openConfig === m.name;
-              const sysInfo   = systemInfo(m.name);
               const modelUses = usesFor(usage, m.name);
+              const sysInfo   = systemInfo(m.name) || routerRoleInfo(modelUses);
 
               return (
                 <div key={m.name} style={{ borderTop: `1px solid ${C.border}` }}>
