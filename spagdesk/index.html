@@ -73,6 +73,11 @@
   .meta select{background:var(--bg);border:1px solid var(--border);color:var(--dim);
     border-radius:6px;font-size:.72rem;padding:.12rem .35rem;cursor:pointer}
   .meta .fixed{color:var(--green);font-weight:600}
+  .meta .fixbtn{background:transparent;border:1px solid rgba(63,185,80,.35);
+    color:var(--green);border-radius:6px;font-size:.72rem;padding:.12rem .4rem;
+    cursor:pointer;font-family:inherit}
+  .meta .fixbtn:hover{background:rgba(63,185,80,.12)}
+  .meta .fixbtn:disabled{opacity:.5;cursor:wait}
 
   aside{width:300px;flex-shrink:0;background:var(--surface);
     border-left:1px solid var(--border);padding:1.25rem;overflow-y:auto}
@@ -405,7 +410,35 @@ function addCorrectionRow(wrap, userContent, info){
   meta.innerHTML =
     (role  ? `<span class="pill role">${role}</span>` : "") +
     (model ? `<span class="pill model">${model}</span>` : "") +
-    `<span>wrong?</span>`;
+    `<span>right?</span>`;
+
+  // ✓ confirms the role that was used. This is the half that makes the router
+  // FASTER: a correct-but-expensive decision (the context model waking up to
+  // classify) repeats that cost forever unless something records the win.
+  // Confirming promotes it to the override tier — instant and free next time.
+  // It lives here, not just in Cockpit, because this is where you actually read
+  // the answer and know whether it was right.
+  if(role){
+    const ok = document.createElement("button");
+    ok.className = "fixbtn";
+    ok.textContent = "✓ right";
+    ok.title = `Confirm ${role} — this message routes there instantly next time, with no model call`;
+    ok.onclick = async ()=>{
+      ok.disabled = true;
+      try{
+        const res = await fetch(CORRECT, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ message:userContent, corrected_role:role, predicted_role:role })
+        });
+        if(!res.ok) throw new Error(await res.text());
+        meta.innerHTML = `<span class="fixed">✓ confirmed → ${role}</span>
+          <span style="color:var(--dim)">— instant next time, no model call</span>`;
+        toast("Confirmed — the router learned it", "ok");
+      }catch(e){ ok.disabled = false; toast("Confirm failed", "err"); }
+    };
+    meta.appendChild(ok);
+  }
+
   const sel = document.createElement("select");
   sel.innerHTML = `<option value="">✎ fix…</option>` +
     ROLES.filter(r=>r!==role).map(r=>`<option value="${r}">${r}</option>`).join("");

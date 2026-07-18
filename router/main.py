@@ -2053,6 +2053,15 @@ async def proxy(request: Request, path: str):
                             break
 
                 # ── Routing mode ─────────────────────────────────────────────
+                # Votes are only produced by the classify path below, but route_meta
+                # reads them on EVERY path — so initialise here. (Without this, an
+                # exact-override route raised UnboundLocalError and lost its
+                # routing-log entry + provenance. Confirming a decision creates an
+                # override, so the ✓ button was arming the very bug that then hid
+                # its own effect from the log.) Empty = "no vote to show", which is
+                # exactly right for command/override/single/utility routes: they
+                # didn't hold an election, they followed an instruction.
+                votes: list[dict] = []
                 if is_utility:
                     # Client housekeeping (title / tag / follow-up generation,
                     # autocomplete, …) — not user intent. Cheap model, and below
@@ -2091,7 +2100,7 @@ async def proxy(request: Request, path: str):
                     # for keyword (did anything match) and kNN (nearest distance);
                     # deliberately null for the model, whose self-reported
                     # understanding isn't trustworthy.
-                    votes: list[dict] = [{
+                    votes = [{
                         "voter":      "keyword",
                         "role":       result.role if tier != "fallback" else None,
                         "confidence": result.confidence if tier != "fallback" else 0.0,
