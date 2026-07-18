@@ -316,18 +316,31 @@ function CorrectionControl({ entry, corrected, busy, onCorrect, onUndo }) {
     );
   }
 
+  // Both directions of the same mechanism. Without ✓, the flywheel could only
+  // learn from MISTAKES: a correct-but-expensive decision (the context model
+  // waking up) stayed expensive forever, because nothing captured the win.
   return (
-    <select value="" disabled={busy}
-      onChange={e => e.target.value && onCorrect(entry, e.target.value)}
-      title="Mark this route wrong and pick the correct role"
-      style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.dim,
-               borderRadius: "5px", fontSize: "0.72rem", padding: "0.15rem 0.35rem",
-               cursor: busy ? "wait" : "pointer" }}>
-      <option value="">✎ fix…</option>
-      {ROLE_CHOICES.filter(r => r !== entry.role).map(r => (
-        <option key={r} value={r}>{ROLE_META[r]?.icon} {r}</option>
-      ))}
-    </select>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+      <button
+        onClick={() => onCorrect(entry, entry.role)} disabled={busy}
+        title={`Confirm ${entry.role} was right — remembers it, so this message routes instantly next time (no model call)`}
+        style={{ background: "transparent", border: `1px solid ${C.green}40`, color: C.green,
+                 borderRadius: "5px", fontSize: "0.72rem", padding: "0.15rem 0.4rem",
+                 cursor: busy ? "wait" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+        ✓ right
+      </button>
+      <select value="" disabled={busy}
+        onChange={e => e.target.value && onCorrect(entry, e.target.value)}
+        title="Mark this route wrong and pick the correct role"
+        style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.dim,
+                 borderRadius: "5px", fontSize: "0.72rem", padding: "0.15rem 0.35rem",
+                 cursor: busy ? "wait" : "pointer" }}>
+        <option value="">✎ fix…</option>
+        {ROLE_CHOICES.filter(r => r !== entry.role).map(r => (
+          <option key={r} value={r}>{ROLE_META[r]?.icon} {r}</option>
+        ))}
+      </select>
+    </span>
   );
 }
 
@@ -358,13 +371,16 @@ function RoutingLog() {
   }, [refresh]);
 
   const correct = async (entry, role) => {
+    const confirming = role === entry.role;   // ✓ right, vs ✎ fix to a different role
     setBusyId(entry.id); setNote(null);
     try {
       await postCorrection({ id: entry.id, corrected_role: role });
-      setNote({ ok: true, msg: `Corrected → ${role}. This and similar messages now route there.` });
+      setNote({ ok: true, msg: confirming
+        ? `Confirmed → ${role}. This and similar messages now route there instantly — no model call.`
+        : `Corrected → ${role}. This and similar messages now route there.` });
       await refresh();
     } catch (e) {
-      setNote({ ok: false, msg: `Correction failed: ${e.message || e}` });
+      setNote({ ok: false, msg: `${confirming ? "Confirm" : "Correction"} failed: ${e.message || e}` });
     } finally { setBusyId(null); }
   };
 

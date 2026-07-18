@@ -1629,9 +1629,20 @@ async def api_routing_log():
 
 @app.post("/api/correction")
 async def api_add_correction(request: Request):
-    """Record a human correction: 'this route was wrong, it should be <role>'.
-    Accepts either a routing-log `id` (we look up that decision) or explicit
-    `message`/`context`/`predicted_role`. Applies to future identical messages."""
+    """Record human feedback on a routing decision. Applies to future identical
+    (and, via embedding, similar) messages. Accepts either a routing-log `id` (we
+    look up that decision) or explicit `message`/`context`/`predicted_role`.
+
+    Two directions, one mechanism:
+      corrected_role != predicted  — a CORRECTION ("that was wrong, it's code")
+      corrected_role == predicted  — a CONFIRMATION ("that was right, remember it")
+
+    Confirmation matters as much as correction: a correct-but-expensive decision
+    (the context model waking up to classify) stays expensive forever unless
+    something captures the win. Confirming it promotes the answer to the override
+    tier, so the same phrasing is free next time. It's also the only source of
+    POSITIVE samples — calibration built purely from corrections over-samples
+    failures, because people report mistakes and stay silent about successes."""
     try:
         data = await request.json()
     except Exception:
@@ -1671,9 +1682,11 @@ async def api_add_correction(request: Request):
     if emb:
         rec["embedding"], rec["embedding_model"] = emb, EMBED_MODEL
     _append_override(rec)
-    log.info(f"correction recorded: {predicted or '?'} → {corrected}"
+    confirmed = bool(predicted) and predicted == corrected
+    log.info(f"{'confirmed' if confirmed else 'correction recorded'}: "
+             f"{predicted or '?'} → {corrected}"
              f"{' (embedded)' if emb else ''}  {message[:60]!r}")
-    return JSONResponse({"ok": True, "corrected_role": corrected,
+    return JSONResponse({"ok": True, "corrected_role": corrected, "confirmed": confirmed,
                          "embedded": bool(emb), "message": message[:_MSG_CAP]})
 
 
