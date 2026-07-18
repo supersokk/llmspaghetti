@@ -433,10 +433,16 @@ async def _warm_context_model() -> None:
                     "smart routing inactive, keyword+kNN unaffected")
 
 
-async def _fuzzy_override(message: str) -> str | None:
+async def _fuzzy_override(message: str) -> dict | None:
     """Fuzzy (embedding kNN) match against stored corrections. Runs ONLY when
     signal+keyword missed, so it never overrides a confident classification and
-    only costs an embed call on otherwise-fallback messages."""
+    only costs an embed call on otherwise-fallback messages.
+
+    Returns the VOTE, not just a winner: {role, sim, threshold, matched}. A
+    near-miss (0.52 when the bar is 0.6) is real evidence — it says kNN leaned a
+    way but wasn't sure — and callers use it both to explain the decision and as a
+    tie-break signal. None only when there's nothing to say (no corrections stored,
+    or the embed failed)."""
     _load_overrides()
     if not _overrides_vectors or not message:
         return None
@@ -449,14 +455,17 @@ async def _fuzzy_override(message: str) -> str | None:
         sim = _cosine(qv, item["vec"])
         if sim > best_sim:
             best_sim, best_role = sim, item["role"]
-    if best_role and best_sim >= threshold:
+    if not best_role:
+        return None
+    matched = best_sim >= threshold
+    if matched:
         log.info(f"fuzzy override  sim={best_sim:.3f} ≥ {threshold} → {best_role}")
-        return best_role
-    if best_role:
+    else:
         # Near-miss — log it so the threshold can be tuned from real numbers.
         log.info(f"fuzzy override  best sim={best_sim:.3f} < {threshold} → no match "
                  f"(would be {best_role})")
-    return None
+    return {"role": best_role, "sim": round(best_sim, 3),
+            "threshold": threshold, "matched": matched}
 
 
 def _make_correction(message: str, predicted_role: str, corrected_role: str,
@@ -508,6 +517,8 @@ def _route_log_entry(rm: dict, model: str | None, fallback: bool) -> dict:
         "message":  rm["message"][:_MSG_CAP],
         "context":  rm["context"],
         "fallback": fallback,
+        # Per-voter evidence — answers "why this role?" without re-running anything.
+        "votes":    rm.get("votes") or [],
     }
 
 
@@ -2012,13 +2023,40 @@ async def proxy(request: Request, path: str):
                 else:
                     result: Classification = classify(last_msg, _ctx)
                     role_name, tier = result.role, result.tier
+                    # Each voter records WHY, not just what — so "why did it pick
+                    # code?" is answerable by inspecting the votes instead of
+                    # guessing. Two separate confidences on purpose:
+                    #   classification — "I think this is code"
+                    #   coverage       — "I actually understood the message"
+                    # A vague prompt can score high on the first and near-zero on
+                    # the second, and only coverage catches that. Clean to compute
+                    # for keyword (did anything match) and kNN (nearest distance);
+                    # deliberately null for the model, whose self-reported
+                    # understanding isn't trustworthy.
+                    votes: list[dict] = [{
+                        "voter":      "keyword",
+                        "role":       result.role if tier != "fallback" else None,
+                        "confidence": result.confidence if tier != "fallback" else 0.0,
+                        "coverage":   0.0 if tier == "fallback" else 1.0,
+                        "reason":     result.reasoning or tier,
+                    }]
                     # Fuzzy correction tier: only when signal+keyword missed, so a
                     # learned correction can rescue an otherwise-general fallback
                     # without ever overriding a confident classification.
                     if tier == "fallback":
                         fuzzy = await _fuzzy_override(last_msg)
                         if fuzzy:
-                            role_name, tier = fuzzy, "override"
+                            votes.append({
+                                "voter":      "knn",
+                                "role":       fuzzy["role"],
+                                "confidence": fuzzy["sim"] if fuzzy["matched"] else 0.0,
+                                "coverage":   fuzzy["sim"],   # how close the nearest neighbour was
+                                "reason":     (f"nearest correction {fuzzy['sim']:.3f} "
+                                               f"{'≥' if fuzzy['matched'] else '<'} "
+                                               f"{fuzzy['threshold']} → {fuzzy['role']}"),
+                            })
+                        if fuzzy and fuzzy["matched"]:
+                            role_name, tier = fuzzy["role"], "override"
                         else:
                             # Context model (opt-in): last voice before the general
                             # floor, so it only ever rescues a message that keyword
@@ -2027,6 +2065,13 @@ async def proxy(request: Request, path: str):
                             # fallback exactly as it was.
                             ctx_role = await _context_classify(last_msg)
                             if ctx_role:
+                                votes.append({
+                                    "voter":      "context",
+                                    "role":       ctx_role,
+                                    "confidence": 0.7,   # single-label: no margin yet
+                                    "coverage":   None,  # not honestly measurable from an LLM
+                                    "reason":     f"{_context_model_active()} → {ctx_role}",
+                                })
                                 role_name, tier = ctx_role, "context"
                     primary, fallback = _model_for_role(role_name)
                     log.info(
@@ -2168,6 +2213,7 @@ async def proxy(request: Request, path: str):
                         "role":    role_name,
                         "message": last_msg,
                         "context": _ctx_to_dict(_ctx),
+                        "votes":   votes,
                     }
 
         except Exception as e:
