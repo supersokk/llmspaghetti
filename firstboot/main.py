@@ -201,7 +201,13 @@ def write_router_roles_config(form_data):
     local_model   = form_data.get("local_model", "qwen2:0.5b")
 
     roles = {
-        "image":     "dall-e-3"      if has_openai   else local_model,
+        # Image requests go to ComfyUI (configured in the Image Generator tab), and
+        # on failure the router returns an explicit error rather than falling through
+        # to a text model — an LLM would just hallucinate a *description* of the
+        # picture. So a local chat model here is dead config: never read, but it
+        # shows up as a phantom dependency everywhere config is inspected. DALL-E is
+        # a real cloud image backend, so that one is kept.
+        "image":     "dall-e-3"      if has_openai   else None,
         "code":      "claude-sonnet" if has_anthropic else local_model,
         "reasoning": "claude-opus"   if has_anthropic else local_model,
         "fast":      "groq-llama3"   if has_groq      else local_model,
