@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SpagDesk</title>
+<!-- PWA: tap-to-home-screen app. manifest.json (not .webmanifest) so Caddy serves
+     it as application/json, which Chrome accepts — no Caddyfile MIME change. -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SpagDesk">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
   :root{
     --bg:#0d1117; --surface:#161b22; --surface2:#1c2230; --border:#30363d;
@@ -138,6 +148,19 @@
   footer{flex-shrink:0;border-top:1px solid var(--border);background:var(--surface);
     padding:.9rem 1.25rem;
     padding-bottom:calc(.9rem + env(safe-area-inset-bottom))}  /* clear the home bar */
+
+  /* Install-to-home-screen hint (dismissible, remembered). */
+  .pwa-hint{flex-shrink:0;display:flex;align-items:center;gap:.6rem;
+    padding:.6rem 1rem;background:var(--surface2);border-top:1px solid var(--border);
+    font-size:.85rem;color:var(--text)}
+  .pwa-hint[hidden]{display:none}
+  .pwa-hint .pwa-icon{font-size:1.1rem}
+  .pwa-hint .pwa-text{flex:1;line-height:1.4}
+  .pwa-hint .pwa-install{background:var(--accent);color:#fff;border:none;border-radius:7px;
+    padding:.35rem .8rem;font-weight:600;font-size:.8rem;cursor:pointer;font-family:inherit;flex-shrink:0}
+  .pwa-hint .pwa-x{background:transparent;border:none;color:var(--dim);cursor:pointer;
+    font-size:.9rem;padding:.2rem .3rem;flex-shrink:0}
+  .pwa-hint .pwa-x:hover{color:var(--text)}
   .composer{max-width:820px;margin:0 auto;display:flex;gap:.6rem;align-items:flex-end}
   textarea{flex:1;resize:none;background:var(--bg);border:1px solid var(--border);
     border-radius:10px;color:var(--text);padding:.7rem .9rem;font-size:.92rem;
@@ -250,6 +273,13 @@
       </div>
     </aside>
   </main>
+
+  <div class="pwa-hint" id="pwa-hint" hidden>
+    <span class="pwa-icon">🍝</span>
+    <span class="pwa-text" id="pwa-text"></span>
+    <button class="pwa-install" id="pwa-install" hidden>Install</button>
+    <button class="pwa-x" id="pwa-dismiss" title="Dismiss">✕</button>
+  </div>
 
   <footer>
     <div class="composer">
@@ -789,6 +819,62 @@ $input.addEventListener("keydown", e=>{
 });
 $send.addEventListener("click", send);
 $input.focus();
+
+// ── Add-to-home-screen (PWA) ────────────────────────────────────────────────
+// Progressive: if the browser offers a real install prompt (Chrome/Android in a
+// SECURE context — HTTPS or localhost) we show an Install button. On a plain-HTTP
+// LAN box that prompt never fires, so we fall back to per-platform manual steps.
+// Either way: dismissible, remembered, and never shown once installed.
+(function(){
+  const PWA_KEY = "spagdesk-pwa-dismissed";
+  const $hint = document.getElementById("pwa-hint");
+  const $text = document.getElementById("pwa-text");
+  const $install = document.getElementById("pwa-install");
+  let deferred = null;
+
+  const installed = () =>
+    window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  const dismissed = () => { try{ return localStorage.getItem(PWA_KEY) === "1"; }catch{ return false; } };
+  const hide = () => { $hint.hidden = true; };
+  function show(text, withButton){
+    if(dismissed() || installed()) return;
+    $text.textContent = text;
+    $install.hidden = !withButton;
+    $hint.hidden = false;
+  }
+
+  // Secure context → a real install prompt is available.
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault(); deferred = e;
+    show("Add SpagDesk to your home screen for one-tap access.", true);
+  });
+  $install.onclick = async () => {
+    if(!deferred) return;
+    deferred.prompt();
+    try{ await deferred.userChoice; }catch{ /* dismissed */ }
+    deferred = null; hide();
+  };
+  document.getElementById("pwa-dismiss").onclick = () => {
+    try{ localStorage.setItem(PWA_KEY, "1"); }catch{ /* quota */ }
+    hide();
+  };
+  window.addEventListener("appinstalled", () => { try{ localStorage.setItem(PWA_KEY, "1"); }catch{} hide(); });
+
+  // No install prompt (the plain-HTTP LAN case): guide the manual add on mobile,
+  // once, after a short delay so it doesn't interrupt the first glance.
+  window.addEventListener("load", () => {
+    if(dismissed() || installed()) return;
+    setTimeout(() => {
+      if(deferred || !$hint.hidden) return;                 // prompt path already handled it
+      const ua = navigator.userAgent;
+      if(/iphone|ipad|ipod/i.test(ua))
+        show("Install: tap Share ⬆, then “Add to Home Screen”.", false);
+      else if(/android/i.test(ua))
+        show("Install: tap ⋮ (menu), then “Add to Home screen”.", false);
+      // desktop: no nag
+    }, 2500);
+  });
+})();
 </script>
 </body>
 </html>

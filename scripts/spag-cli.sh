@@ -139,7 +139,7 @@ cmd_update() {
 
       info "Redeploying router, SpagDesk, scripts..."
       cp -r "$SRC_DIR/router"            "$INSTALL_DIR/"                    # bind-mounted → restart picks it up
-      cp    "$SRC_DIR/spagdesk/index.html" "$INSTALL_DIR/spagdesk/index.html" 2>/dev/null || true
+      cp -r "$SRC_DIR/spagdesk/." "$INSTALL_DIR/spagdesk/" 2>/dev/null || true   # all static assets (index.html, icon.svg, manifest.json, …)
       cp    "$SRC_DIR"/scripts/*.sh      "$INSTALL_DIR/scripts/"           2>/dev/null || true
 
       # Config files are deliberately NOT copied over (that would clobber roles,
