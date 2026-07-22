@@ -643,7 +643,10 @@ function Settings() {
     setShowKey(prev => ({ ...prev, [k]: !prev[k] }));
 
   return (
-    <div>
+    // Constrain to a readable column and centre it — every other tab does this, so
+    // without it the inputs sprawl edge-to-edge on a wide monitor and the card's
+    // 1px border is lost across the width, reading as "no frame, out of bounds".
+    <div style={{ maxWidth: 820, margin: "0 auto" }}>
       {alert && (
         <div className={`alert alert-${alert.type}`}>
           {alert.type === "ok" ? "✓" : "✗"} {alert.msg}
