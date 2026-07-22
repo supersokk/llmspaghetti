@@ -8,6 +8,7 @@ Sits between Open WebUI and LiteLLM.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -236,6 +237,15 @@ def _utility_model() -> str:
 # a tombstone record, never a hard delete — reversibility from day one.
 
 OVERRIDES_PATH   = INSTALL_DIR / "data" / "overrides_local.jsonl"
+# Slice 4 of PLANNED-smart-routing.md — raw calibration data. Two append-only event
+# types (decision / outcome) joined later by id to measure each voter's REAL
+# reliability. Logging only, no computation yet: log from day one, calibrate once
+# there's a corpus. Only decisions that held an election (the classify path with
+# votes) are logged — a command/override/single route is deterministic, nothing to
+# calibrate. Trimmed to the last _CALIB_CAP lines so an appliance never grows it
+# without bound.
+CALIB_PATH       = INSTALL_DIR / "data" / "calibration.jsonl"
+_CALIB_CAP       = 20000
 _MSG_CAP         = 2000  # cap stored/displayed message length (local text)
 _overrides_cache:   dict  = {}   # normalized message → corrected_role (exact, active)
 _overrides_vectors: list  = []   # [{"role","vec"}] for fuzzy kNN (active, model-matched)
@@ -493,6 +503,67 @@ def _append_override(rec: dict):
     with open(OVERRIDES_PATH, "a") as f:
         f.write(json.dumps(rec) + "\n")
     _overrides_mtime = 0.0  # force reload on next lookup
+
+
+def _append_calibration(event: dict) -> None:
+    """Append one calibration event. Best-effort — instrumentation must never affect
+    a request, so any failure is swallowed. Occasionally trims to the last _CALIB_CAP
+    lines so the file can't grow without bound on a long-lived box."""
+    try:
+        CALIB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(CALIB_PATH, "a") as f:
+            f.write(json.dumps(event) + "\n")
+        # Cheap amortised trim: only stat/rewrite occasionally, not every write.
+        if secrets.randbelow(200) == 0:
+            lines = CALIB_PATH.read_text().splitlines()
+            if len(lines) > _CALIB_CAP:
+                CALIB_PATH.write_text("\n".join(lines[-_CALIB_CAP:]) + "\n")
+    except Exception as e:
+        log.debug(f"calibration log skipped: {e}")
+
+
+def _calib_msg_hash(message: str) -> str:
+    """Stable, privacy-preserving key for a message. Decisions and outcomes carry
+    it so feedback links to its decision even when the client has no routing-log id
+    (SpagDesk corrects by message text, not id) — without ever storing the text."""
+    norm = " ".join((message or "").strip().lower().split())
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def _log_decision(route_meta: dict) -> None:
+    """Record a routing decision and the votes behind it. Only meaningful when there
+    was an election (votes present) — deterministic routes have nothing to calibrate."""
+    votes = route_meta.get("votes") or []
+    if not votes:
+        return
+    _append_calibration({
+        "t":     "decision",
+        "id":    route_meta["id"],
+        "msg":   _calib_msg_hash(route_meta.get("message", "")),
+        "ts":    time.time(),
+        "tier":  route_meta["tier"],
+        "role":  route_meta["role"],
+        # Just the numbers per voter — no message text. The id / msg hash link to
+        # feedback; the correction store already holds any text the user chose to share.
+        "votes": [{"voter": v.get("voter"), "role": v.get("role"),
+                   "confidence": v.get("confidence"), "coverage": v.get("coverage")}
+                  for v in votes],
+    })
+
+
+def _log_outcome(entry_id: str, outcome: str, corrected_role: str,
+                 predicted_role: str, message: str) -> None:
+    """Record human feedback on a decision, joined to it later by id (Cockpit) or
+    message hash (SpagDesk). outcome: 'confirmed' (right) | 'corrected' (wrong)."""
+    _append_calibration({
+        "t":        "outcome",
+        "id":       entry_id or None,
+        "msg":      _calib_msg_hash(message),
+        "ts":       time.time(),
+        "outcome":  outcome,
+        "role":     corrected_role,      # the ground-truth role the human affirmed
+        "predicted": predicted_role,
+    })
 
 
 def _ctx_to_dict(ctx: Context) -> dict:
@@ -1683,6 +1754,11 @@ async def api_add_correction(request: Request):
         rec["embedding"], rec["embedding_model"] = emb, EMBED_MODEL
     _append_override(rec)
     confirmed = bool(predicted) and predicted == corrected
+    # Calibration ground truth: link this feedback to its decision by id. Positive
+    # (confirmed) samples matter as much as negative (corrected) — calibration built
+    # only from corrections over-samples failures.
+    _log_outcome(entry_id, "confirmed" if confirmed else "corrected",
+                 corrected, predicted, message)
     log.info(f"{'confirmed' if confirmed else 'correction recorded'}: "
              f"{predicted or '?'} → {corrected}"
              f"{' (embedded)' if emb else ''}  {message[:60]!r}")
@@ -1716,6 +1792,75 @@ async def api_routing_mode():
     return JSONResponse({
         "mode":         cfg.get("mode", "auto"),
         "single_model": cfg.get("single_model"),
+    })
+
+
+@app.get("/api/calibration")
+async def api_calibration():
+    """Read back the calibration log as COUNTS — proof it's accumulating, not the
+    reliability computation itself (that needs a real corpus; deferred by design).
+
+    Joins outcomes to decisions by id or message hash and reports, per voter:
+    how often it voted, and — only among decisions that later got human feedback —
+    how often its vote matched the human's ground-truth role. Explicitly labelled
+    preliminary until there are enough judged samples to mean anything."""
+    MIN_JUDGED = 30                      # below this, per-voter accuracy is noise
+    decisions: dict = {}                 # key → {votes, role}
+    outcomes:  dict = {}                 # key → ground-truth role
+    n_dec = n_conf = n_corr = 0
+    try:
+        for line in CALIB_PATH.read_text().splitlines():
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            key = e.get("id") or e.get("msg")
+            if not key:
+                continue
+            if e.get("t") == "decision":
+                decisions[key] = e
+                n_dec += 1
+            elif e.get("t") == "outcome":
+                outcomes[key] = e.get("role")
+                if e.get("outcome") == "confirmed":
+                    n_conf += 1
+                elif e.get("outcome") == "corrected":
+                    n_corr += 1
+    except FileNotFoundError:
+        pass
+
+    voters: dict = {}
+    def _v(name):
+        return voters.setdefault(name, {"votes": 0, "judged": 0, "correct": 0})
+
+    for key, dec in decisions.items():
+        truth = outcomes.get(key)         # ground truth only where feedback exists
+        for v in dec.get("votes", []):
+            name = v.get("voter")
+            if not name:
+                continue
+            slot = _v(name)
+            slot["votes"] += 1
+            if truth and v.get("role"):
+                slot["judged"] += 1
+                if v["role"] == truth:
+                    slot["correct"] += 1
+
+    judged_total = sum(s["judged"] for s in voters.values())
+    for s in voters.values():
+        # Accuracy only when we have enough judged samples for this voter to matter.
+        s["accuracy"] = round(s["correct"] / s["judged"], 3) if s["judged"] >= MIN_JUDGED else None
+
+    return JSONResponse({
+        "decisions": n_dec,
+        "outcomes":  {"confirmed": n_conf, "corrected": n_corr, "total": n_conf + n_corr},
+        "voters":    voters,
+        "ready":     judged_total >= MIN_JUDGED,
+        "note": (
+            f"Collecting. Accuracy per voter appears once a voter has ≥{MIN_JUDGED} "
+            "judged decisions (a confirmed/corrected outcome). Keep using ✓ right / "
+            "✎ fix — every one is a labelled sample."
+        ),
     })
 
 
@@ -2343,6 +2488,7 @@ async def proxy(request: Request, path: str):
     if is_streaming:
         if route_meta:
             _routing_log.appendleft(_route_log_entry(route_meta, primary_model, False))
+            _log_decision(route_meta)
         fallback_log: dict | None = None
         if route_meta and fallback_model:
             fallback_log = {
@@ -2469,6 +2615,7 @@ async def proxy(request: Request, path: str):
     if route_meta:
         _routing_log.appendleft(_route_log_entry(
             route_meta, fallback_model if used_fallback else primary_model, used_fallback))
+        _log_decision(route_meta)
 
     resp_headers = {
         k: v for k, v in upstream.headers.items()
