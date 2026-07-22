@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SpagDesk</title>
 <style>
   :root{
@@ -14,7 +14,8 @@
   html,body{height:100%}
   body{background:var(--bg);color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-    display:flex;flex-direction:column;height:100vh;overflow:hidden}
+    display:flex;flex-direction:column;overflow:hidden;
+    height:100vh;height:100dvh}   /* dvh excludes the mobile browser chrome (100vh doesn't) */
   ::-webkit-scrollbar{width:8px;height:8px}
   ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 
@@ -135,7 +136,8 @@
   .insight-empty{color:var(--dim);font-size:.82rem;line-height:1.6}
 
   footer{flex-shrink:0;border-top:1px solid var(--border);background:var(--surface);
-    padding:.9rem 1.25rem}
+    padding:.9rem 1.25rem;
+    padding-bottom:calc(.9rem + env(safe-area-inset-bottom))}  /* clear the home bar */
   .composer{max-width:820px;margin:0 auto;display:flex;gap:.6rem;align-items:flex-end}
   textarea{flex:1;resize:none;background:var(--bg);border:1px solid var(--border);
     border-radius:10px;color:var(--text);padding:.7rem .9rem;font-size:.92rem;
@@ -155,6 +157,14 @@
   .modebar > *{pointer-events:auto}
   .modebar::-webkit-scrollbar{height:0}
   @media(max-width:720px){ .modebar{right:1.25rem} }  /* sidebar hidden → center full width */
+  /* On mobile, drop the absolute overlay and become a normal scrollable strip
+     BELOW the header, so the mode buttons don't sit on top of the logo/status. */
+  @media(max-width:720px){
+    .modebar{position:static;height:auto;left:auto;right:auto;
+      justify-content:flex-start;padding:.4rem .75rem;
+      border-bottom:1px solid var(--border);background:var(--surface);pointer-events:auto}
+    .modebar .lbl{display:none}
+  }
   .modebar .lbl{font-size:.65rem;color:var(--dim);text-transform:uppercase;
     letter-spacing:.06em;margin-right:.1rem;flex-shrink:0}
   .mode-btn{background:var(--bg);border:1px solid var(--border);color:var(--dim);
@@ -196,10 +206,12 @@
     <span class="sub">the router, visible</span>
     <span class="spacer"></span>
     <span class="dot"></span><span class="status" id="status">ready</span>
-    <button class="newchat" id="newchat" title="Start a fresh chat (clears history)">＋ New</button>
     <button class="railtoggle" id="toggle-right2" title="Show / hide router panel">◧</button>
-    <div class="modebar" id="modebar"></div>
   </header>
+
+  <!-- Route-to modes. Absolutely overlaid on the header on desktop; its own
+       scrollable strip below the header on mobile (so nothing is mushed). -->
+  <div class="modebar" id="modebar"></div>
 
   <main>
     <nav id="sidebar">
@@ -280,7 +292,6 @@ const $send = document.getElementById("send");
 const $status = document.getElementById("status");
 const $insight = document.getElementById("insight");
 const $modebar = document.getElementById("modebar");
-const $newchat = document.getElementById("newchat");
 
 // ── Conversation persistence + left rail ────────────────────────────────────
 // Conversations live in localStorage (client-side, buildless — the MVP answer to
@@ -402,7 +413,6 @@ function newChat(){
   $input.value = ""; autogrow(); $input.focus();
   renderSidebar();
 }
-$newchat.onclick = newChat;
 document.getElementById("side-new").onclick = newChat;
 renderSidebar();
 
