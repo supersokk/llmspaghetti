@@ -30,6 +30,49 @@
   @media(max-width:900px){ header .sub{display:none} }
 
   main{flex:1;display:flex;min-height:0}
+
+  /* Left rail — conversation history (persisted in localStorage). */
+  #sidebar{width:230px;flex-shrink:0;background:var(--surface);
+    border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+  #sidebar .side-head{display:flex;align-items:center;justify-content:space-between;
+    padding:.9rem 1rem .6rem;font-size:.7rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:.06em;color:var(--dim)}
+  #sidebar .side-new{background:var(--accent);color:#fff;border:none;border-radius:6px;
+    font-size:.74rem;font-weight:600;padding:.25rem .55rem;cursor:pointer;font-family:inherit}
+  #convo-list{flex:1;overflow-y:auto;padding:.25rem .5rem .75rem}
+  .convo-item{display:flex;align-items:center;gap:.4rem;padding:.5rem .55rem;
+    border-radius:7px;cursor:pointer;margin-bottom:.15rem}
+  .convo-item:hover{background:var(--bg)}
+  .convo-item.active{background:rgba(47,129,247,.14);outline:1px solid rgba(47,129,247,.3)}
+  .convo-item .ci-body{flex:1;min-width:0}
+  .convo-item .ci-title{font-size:.82rem;color:var(--text);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .convo-item .ci-time{font-size:.68rem;color:var(--dim)}
+  .convo-item .ci-del{opacity:0;background:transparent;border:none;color:var(--dim);
+    cursor:pointer;font-size:.85rem;padding:.1rem .25rem;flex-shrink:0}
+  .convo-item:hover .ci-del{opacity:1}
+  .convo-item .ci-del:hover{color:var(--red)}
+  .convo-empty{color:var(--dim);font-size:.78rem;line-height:1.5;padding:.6rem}
+  /* Collapsible rails (☰ / ›). State persisted; on mobile the left rail slides
+     over the chat instead of squeezing it. */
+  body.hide-left #sidebar{display:none}
+  body.hide-right aside{display:none}
+  .railtoggle{background:transparent;border:1px solid var(--border);color:var(--dim);
+    border-radius:6px;font-size:1rem;line-height:1;padding:.2rem .5rem;cursor:pointer;
+    flex-shrink:0}
+  .railtoggle:hover{color:var(--text);border-color:var(--accent)}
+  aside .aside-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+  aside .aside-collapse{background:transparent;border:none;color:var(--dim);cursor:pointer;
+    font-size:.9rem;padding:0 .2rem}
+  aside .aside-collapse:hover{color:var(--text)}
+  /* On mobile the left rail floats over the chat (JS defaults it closed there);
+     the right panel is hidden on mobile, so its ◧ toggle is hidden too. */
+  @media(max-width:720px){
+    #sidebar{position:fixed;left:0;top:54px;bottom:0;z-index:40;
+      box-shadow:2px 0 16px rgba(0,0,0,.5)}
+    #toggle-right2{display:none}
+  }
+
   #transcript{flex:1;overflow-y:auto;padding:1.5rem;display:flex;
     flex-direction:column;gap:1.1rem}
   #transcript .empty{margin:auto;text-align:center;color:var(--dim);max-width:420px}
@@ -148,15 +191,25 @@
 </head>
 <body>
   <header>
+    <button class="railtoggle" id="toggle-left" title="Show / hide chats">☰</button>
     <span class="logo">🍝 SpagDesk</span>
     <span class="sub">the router, visible</span>
     <span class="spacer"></span>
     <span class="dot"></span><span class="status" id="status">ready</span>
     <button class="newchat" id="newchat" title="Start a fresh chat (clears history)">＋ New</button>
+    <button class="railtoggle" id="toggle-right2" title="Show / hide router panel">◧</button>
     <div class="modebar" id="modebar"></div>
   </header>
 
   <main>
+    <nav id="sidebar">
+      <div class="side-head">
+        <span>Chats</span>
+        <button class="side-new" id="side-new" title="Start a new chat">＋ New</button>
+      </div>
+      <div id="convo-list"></div>
+    </nav>
+
     <section id="transcript">
       <div class="empty" id="empty">
         <div class="big">🍝</div>
@@ -167,7 +220,10 @@
     </section>
 
     <aside>
-      <h3>Router Insight</h3>
+      <div class="aside-head">
+        <h3>Router Insight</h3>
+        <button class="aside-collapse" id="toggle-right" title="Hide panel">›</button>
+      </div>
       <div id="insight">
         <div class="insight-empty">Send a message to see how the router handled
         it — role, model, and fallback.</div>
@@ -226,17 +282,147 @@ const $insight = document.getElementById("insight");
 const $modebar = document.getElementById("modebar");
 const $newchat = document.getElementById("newchat");
 
+// ── Conversation persistence + left rail ────────────────────────────────────
+// Conversations live in localStorage (client-side, buildless — the MVP answer to
+// "backend or client store?"). A conversation is a list of TURNS: enough to redraw
+// the transcript (images included) AND rebuild the API-context messages[] on load.
+const STORE_KEY = "spagdesk-convos";
+const $sidebar  = document.getElementById("convo-list");
+let convos = loadConvos();      // [{id,title,ts,updated,turns:[{role,text,info?,image?}]}]
+let convo  = null;              // the active conversation (null until the first turn)
+
+function loadConvos(){
+  try{ return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); }catch{ return []; }
+}
+function persistConvos(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(convos.slice(0, 100))); }catch{ /* quota */ }
+}
+function newConvoObj(){
+  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+           title: "New chat", ts: Date.now(), updated: Date.now(), turns: [] };
+}
+function relTime(ts){
+  const s = (Date.now() - ts) / 1000;
+  if(s < 60)    return "just now";
+  if(s < 3600)  return Math.floor(s/60) + "m ago";
+  if(s < 86400) return Math.floor(s/3600) + "h ago";
+  return new Date(ts).toLocaleDateString();
+}
+
+// Record a turn into the active conversation and persist. The first turn creates
+// the conversation; the title comes from the first user message.
+function recordTurn(turn){
+  if(!convo){ convo = newConvoObj(); convos.unshift(convo); }
+  convo.turns.push(turn);
+  convo.updated = Date.now();
+  if(convo.title === "New chat"){
+    const u = convo.turns.find(t => t.role === "user");
+    if(u) convo.title = u.text.slice(0, 46) + (u.text.length > 46 ? "…" : "");
+  }
+  persistConvos();
+  renderSidebar();
+}
+// After an image turn completes we know the pair shouldn't feed later text context;
+// flag both so a reload rebuilds messages[] the same way the live path does.
+function markLastImagePair(){
+  if(!convo) return;
+  for(let i = convo.turns.length - 1, marked = 0; i >= 0 && marked < 2; i--){
+    convo.turns[i].image = true; marked++;
+  }
+  persistConvos();
+}
+
+function renderSidebar(){
+  $sidebar.innerHTML = "";
+  if(!convos.length){
+    $sidebar.innerHTML = '<div class="convo-empty">Your chats will appear here. ' +
+      'They stay on this device.</div>';
+    return;
+  }
+  for(const c of convos){
+    const item = document.createElement("div");
+    item.className = "convo-item" + (convo && c.id === convo.id ? " active" : "");
+    item.innerHTML = `<div class="ci-body"><div class="ci-title"></div>` +
+      `<div class="ci-time">${relTime(c.updated)}</div></div>` +
+      `<button class="ci-del" title="Delete chat">✕</button>`;
+    item.querySelector(".ci-title").textContent = c.title;   // textContent: no HTML injection
+    item.querySelector(".ci-body").onclick = () => loadConvo(c.id);
+    item.querySelector(".ci-del").onclick = (e) => { e.stopPropagation(); deleteConvo(c.id); };
+    $sidebar.appendChild(item);
+  }
+}
+
+function deleteConvo(id){
+  convos = convos.filter(c => c.id !== id);
+  persistConvos();
+  if(convo && convo.id === id){ convo = null; newChat(); }   // deleted the open one
+  else renderSidebar();
+}
+
+// Rebuild transcript + messages[] from a stored conversation.
+function loadConvo(id){
+  const c = convos.find(x => x.id === id);
+  if(!c) return;
+  convo = c;
+  messages.length = 0;
+  $t.innerHTML = "";
+  $empty = null;
+  let lastInfo = null, prevUser = "";
+  for(const turn of c.turns){
+    const { wrap, bubble } = addMessage(turn.role);
+    renderContent(bubble, turn.text);
+    if(turn.role === "user"){
+      prevUser = turn.text;
+      if(!turn.image) messages.push({ role: "user", content: turn.text });
+    }else{
+      lastInfo = turn.info || null;
+      addArtifacts(wrap, turn.text, !!turn.image);
+      if(!turn.image){
+        messages.push({ role: "assistant", content: turn.text });
+        addCorrectionRow(wrap, prevUser, turn.info);
+      }
+    }
+  }
+  renderInsight(lastInfo);
+  renderSidebar();
+  $t.scrollTop = $t.scrollHeight;
+  $input.focus();
+}
+
 // Start a fresh chat: clear history + transcript, reset insight and mode. Fixes
-// context poisoning — one bad turn no longer haunts the rest of the session.
+// context poisoning — one bad turn no longer haunts the rest of the session. The
+// previous conversation is already saved turn-by-turn, so nothing is lost.
 function newChat(){
+  convo = null;
   messages.length = 0;
   $t.innerHTML = EMPTY_HTML;
   $empty = document.getElementById("empty");
   $insight.innerHTML = INSIGHT_HTML;
   setMode("auto");
   $input.value = ""; autogrow(); $input.focus();
+  renderSidebar();
 }
 $newchat.onclick = newChat;
+document.getElementById("side-new").onclick = newChat;
+renderSidebar();
+
+// ── Collapsible rails (☰ left, ◧ right) — remembered across reloads ──────────
+const RAIL_KEY = "spagdesk-rails";
+const railState = (() => {
+  try{ const s = JSON.parse(localStorage.getItem(RAIL_KEY)); if(s) return s; }catch{ /* fresh */ }
+  const wide = window.innerWidth > 720;     // default: open on desktop, closed on phones
+  return { left: wide, right: wide };
+})();
+function applyRails(){
+  document.body.classList.toggle("hide-left",  !railState.left);
+  document.body.classList.toggle("hide-right", !railState.right);
+  try{ localStorage.setItem(RAIL_KEY, JSON.stringify(railState)); }catch{ /* quota */ }
+}
+function toggleRail(side){ railState[side] = !railState[side]; applyRails(); }
+document.getElementById("toggle-left").onclick   = () => toggleRail("left");
+document.getElementById("toggle-right").onclick  = () => toggleRail("right");
+document.getElementById("toggle-right2").onclick = () => toggleRail("right");
+applyRails();
 
 function buildModeBar(){
   $modebar.innerHTML = '<span class="lbl">Route to</span>';
@@ -483,6 +669,7 @@ async function send(){
 
   $input.value = ""; autogrow(); $input.focus();
   addMessage("user").bubble.textContent = text;            // clean display, no //x
+  recordTurn({ role: "user", text });                       // persist (left rail)
 
   const { wrap, bubble } = addMessage("assistant");
   bubble.textContent = "…";
@@ -557,6 +744,8 @@ async function send(){
       renderInsight(info);
       addArtifacts(wrap, clean, isImage);    // ⬇ save reply / named file cards
       addCorrectionRow(wrap, text, info);
+      recordTurn({ role: "assistant", text: clean, info, image: isImage });
+      if(isImage) markLastImagePair();       // keep the image pair out of reloaded context
     }else{
       // No chat content — surface whatever came back (usually a router/LiteLLM error).
       if(!errMsg){
