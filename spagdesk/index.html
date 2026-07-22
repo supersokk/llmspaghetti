@@ -151,11 +151,16 @@
      Insight sidebar), not the whole window — so it sits over the chat. Sits on
      top of the header row; pointer-events pass through the empty parts to the
      logo/status underneath. */
-  .modebar{position:absolute;top:0;bottom:0;left:1.25rem;right:calc(300px + 1.25rem);
+  /* top:0 + FIXED header height — the modebar is now a body-level sibling (so it
+     can go static on mobile), so it's positioned against the viewport, not the
+     54px header. Pin the height explicitly or top:0/bottom:0 would span the whole
+     screen and centre the buttons in the middle. */
+  .modebar{position:absolute;top:0;height:54px;left:1.25rem;right:calc(300px + 1.25rem);
     display:flex;gap:.3rem;align-items:center;justify-content:center;
     flex-wrap:nowrap;overflow-x:auto;pointer-events:none}
   .modebar > *{pointer-events:auto}
   .modebar::-webkit-scrollbar{height:0}
+  body.hide-right .modebar{right:1.25rem}              /* insight panel hidden → use its space */
   @media(max-width:720px){ .modebar{right:1.25rem} }  /* sidebar hidden → center full width */
   /* On mobile, drop the absolute overlay and become a normal scrollable strip
      BELOW the header, so the mode buttons don't sit on top of the logo/status. */
