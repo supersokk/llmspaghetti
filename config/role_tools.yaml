@@ -2,7 +2,10 @@
 # Managed by the Routing → Tools panel.
 #
 # Available tools: filesystem, memory, fetch, brave-search, github, sqlite, postgres
-# A tool must be installed (Services → MCP Tools) before it can be used.
+# Most tools must be installed (Services → MCP Tools) before use. EXCEPTION: `fetch`
+# is BUILT IN — the router retrieves the URL itself, so it needs no install; just
+# enable it on a tool-capable role. It gives a model live web content (its biggest
+# lift over stale training data).
 #
 # OPT-IN BY DESIGN: tools are OFF for every role by default. Injecting a tool into
 # a role means EVERY message routed there goes to the model WITH that tool — which
