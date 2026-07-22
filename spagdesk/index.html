@@ -169,6 +169,7 @@
   button.send{background:var(--accent);color:#fff;border:none;border-radius:10px;
     padding:.7rem 1.1rem;font-weight:700;font-size:.9rem;cursor:pointer;flex-shrink:0}
   button.send:disabled{opacity:.5;cursor:not-allowed}
+  button.send.stop{background:var(--red)}   /* aborts in-flight generations */
 
   /* Absolutely centered over the TRANSCRIPT column (window minus the 300px
      Insight sidebar), not the whole window — so it sits over the chat. Sits on
@@ -698,9 +699,19 @@ function addCorrectionRow(wrap, userContent, info){
 // while the clown renders (the router is async; this just stops the UI from
 // serialising). inFlight tracks how many are in the air for the status line.
 let inFlight = 0;
+// Live requests, so ⏹ Stop can abort them — the safety net when a model runs away
+// (loops on a tool, rambles). While anything is in flight, the Send button becomes
+// a red Stop that aborts everything.
+const controllers = new Set();
 function setStatus(){
   $status.textContent = inFlight > 1 ? `${inFlight} in flight…`
                       : inFlight === 1 ? "working…" : "ready";
+  const busy = inFlight > 0;
+  $send.textContent = busy ? "⏹ Stop" : "Send";
+  $send.classList.toggle("stop", busy);
+}
+function stopAll(){
+  for(const c of controllers){ try{ c.abort(); }catch{ /* already done */ } }
 }
 
 async function send(){
@@ -740,11 +751,14 @@ async function send(){
   }
 
   let full = "", info = null, raw = "", errMsg = null;
+  const ctrl = new AbortController();
+  controllers.add(ctrl);
   try{
     const res = await fetch(CHAT, {
       method:"POST",
       headers:{ "Content-Type":"application/json", "Authorization":"Bearer sk-llmspaghetti" },
-      body: JSON.stringify({ model:"auto", stream:true, messages: reqMessages })
+      body: JSON.stringify({ model:"auto", stream:true, messages: reqMessages }),
+      signal: ctrl.signal
     });
     if(!res.body) throw new Error("no response body from router");
     const reader = res.body.getReader();
@@ -803,8 +817,20 @@ async function send(){
       bubble.textContent = "⚠ " + String(errMsg).slice(0, 400);
     }
   }catch(e){
-    bubble.textContent = "⚠ " + (e.message || "request failed");
+    if(e && e.name === "AbortError"){
+      // Stopped by the user — keep whatever streamed in, tagged as stopped, and
+      // do NOT record the assistant turn (a truncated reply would poison context).
+      const partial = stripThink(full).replace(FOOTER_RE, "").trim();
+      if(partial){ renderContent(bubble, partial);
+        const tag = document.createElement("span");
+        tag.style.cssText = "color:var(--dim);font-size:.78rem"; tag.textContent = "  ⏹ stopped";
+        bubble.appendChild(tag);
+      }else{ bubble.textContent = "⏹ stopped"; }
+    }else{
+      bubble.textContent = "⚠ " + (e.message || "request failed");
+    }
   }finally{
+    controllers.delete(ctrl);
     inFlight--; setStatus();
   }
 }
@@ -817,7 +843,7 @@ $input.addEventListener("input", autogrow);
 $input.addEventListener("keydown", e=>{
   if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); }
 });
-$send.addEventListener("click", send);
+$send.addEventListener("click", () => { if(inFlight > 0) stopAll(); else send(); });
 $input.focus();
 
 // ── Add-to-home-screen (PWA) ────────────────────────────────────────────────
