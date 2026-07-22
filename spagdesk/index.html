@@ -160,7 +160,10 @@
     flex-wrap:nowrap;overflow-x:auto;pointer-events:none}
   .modebar > *{pointer-events:auto}
   .modebar::-webkit-scrollbar{height:0}
-  body.hide-right .modebar{right:1.25rem}              /* insight panel hidden → use its space */
+  /* The modebar is anchored to a FIXED region and must not move when a rail
+     toggles — the left rail already never touches it, and the right must match.
+     (An earlier hide-right override re-anchored it on collapse, so toggling the
+     Insight panel visibly shoved the modes sideways.) */
   @media(max-width:720px){ .modebar{right:1.25rem} }  /* sidebar hidden → center full width */
   /* On mobile, drop the absolute overlay and become a normal scrollable strip
      BELOW the header, so the mode buttons don't sit on top of the logo/status. */
