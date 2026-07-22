@@ -873,6 +873,40 @@ _TOOL_TO_SERVER: dict[str, str] = {
     for fn in fns
 }
 
+# Tools the router runs ITSELF — no MCP server subprocess, no `npx`/Services install.
+# `fetch` is a natural fit: retrieving a URL is a plain HTTP GET, and giving a model
+# live web content is the single biggest lift over its stale training data. Enable it
+# on a (tool-capable) role in Routing → Tools; it just works, nothing to install.
+_BUILTIN_SERVERS = {"fetch"}
+
+
+async def _builtin_fetch(args: dict) -> str:
+    """Fetch a URL and return readable text. HTML is stripped to plain text and the
+    result is capped so a huge page can't blow the model's context."""
+    url     = str(args.get("url", "")).strip()
+    max_len = int(args.get("max_length") or 5000)
+    if not url.startswith(("http://", "https://")):
+        return "Error: url must be an absolute http(s) URL."
+    try:
+        r = await _ext_client.get(url, timeout=15.0, follow_redirects=True,
+                                  headers={"User-Agent": "llmspaghetti-fetch/1.0"})
+        r.raise_for_status()
+    except Exception as e:
+        return f"Error fetching {url}: {e!r}"
+    text = r.text
+    if "html" in r.headers.get("content-type", "").lower():
+        text = re.sub(r"(?is)<(script|style)\b[^>]*>.*?</\1>", " ", text)  # drop script/style bodies
+        text = re.sub(r"(?s)<[^>]+>", " ", text)                            # strip tags
+        text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_len] or "(empty response)"
+
+
+async def _dispatch_builtin(fn_name: str, args: dict) -> str:
+    """Run a built-in tool by function name."""
+    if fn_name == "fetch_url":
+        return await _builtin_fetch(args)
+    return f"Unknown built-in tool: {fn_name}"
+
 
 def _tools_for_role(role: str) -> list[dict]:
     """Return the merged list of tool schemas enabled for a role."""
@@ -881,7 +915,8 @@ def _tools_for_role(role: str) -> list[dict]:
     installed       = set(mcp_cfg.get("mcpServers", {}).keys())
     schemas: list[dict] = []
     for sid in enabled_servers:
-        if sid in installed and sid in _MCP_SCHEMAS:
+        # Built-in tools need no install; MCP tools need their server present.
+        if sid in _MCP_SCHEMAS and (sid in _BUILTIN_SERVERS or sid in installed):
             schemas.extend(_MCP_SCHEMAS[sid])
     return schemas
 
@@ -948,8 +983,10 @@ async def _call_mcp_tool(server_id: str, tool_name: str, arguments: dict) -> str
         return f"Tool execution error: {e}"
 
 
-async def _resolve_tool_calls(messages: list, tool_calls: list, model: str, headers: dict) -> list:
-    """Execute tool calls and return updated messages list with results appended."""
+async def _resolve_tool_calls(messages: list, tool_calls: list, model: str, headers: dict,
+                              used: list | None = None) -> list:
+    """Execute tool calls and return the tool-result messages. If `used` is given,
+    append a {name, arg} record per call so the caller can show what ran (visibility)."""
     tool_results = []
     for tc in tool_calls:
         fn_name  = tc.get("function", {}).get("name", "")
@@ -959,7 +996,16 @@ async def _resolve_tool_calls(messages: list, tool_calls: list, model: str, head
             args = {}
         server_id = _TOOL_TO_SERVER.get(fn_name, "")
         log.info(f"tool call: {fn_name}({args}) → server={server_id!r}")
-        result = await _call_mcp_tool(server_id, fn_name, args) if server_id else f"Unknown tool: {fn_name}"
+        if server_id in _BUILTIN_SERVERS:
+            result = await _dispatch_builtin(fn_name, args)
+        elif server_id:
+            result = await _call_mcp_tool(server_id, fn_name, args)
+        else:
+            result = f"Unknown tool: {fn_name}"
+        if used is not None:
+            # A short, human-readable argument for the UI (first value, truncated).
+            arg = next((str(v) for v in args.values() if v not in (None, "")), "")
+            used.append({"name": fn_name, "arg": arg[:100]})
         tool_results.append({
             "role":         "tool",
             "tool_call_id": tc.get("id", ""),
@@ -2563,6 +2609,7 @@ async def proxy(request: Request, path: str):
             log.warning(f"fallback also failed: {fb_e!r}")
 
     # ── Tool call resolution loop (max 5 turns) ────────────────────────────────
+    tools_used: list[dict] = []   # {name, arg} per executed call — surfaced to the client
     if upstream.status_code < 500:
         try:
             resp_data = upstream.json()
@@ -2582,7 +2629,7 @@ async def proxy(request: Request, path: str):
             for _turn in range(5):
                 tool_results = await _resolve_tool_calls(
                     loop_messages, tool_calls,
-                    primary_model or _default_model(), fwd_headers,
+                    primary_model or _default_model(), fwd_headers, tools_used,
                 )
                 loop_messages.extend(tool_results)
                 # Re-request without tools (let model formulate final answer)
@@ -2642,6 +2689,8 @@ async def proxy(request: Request, path: str):
         if add_prov:
             final_content += _provenance_footer(prov_model, prov_role)
             prov = _provenance_meta(prov_model, prov_role, used_fallback)
+            if tools_used:
+                prov["tools"] = tools_used
         return StreamingResponse(
             _text_sse(final_content, primary_model or _default_model(), prov),
             media_type="text/event-stream",
@@ -2655,6 +2704,8 @@ async def proxy(request: Request, path: str):
             msg  = data["choices"][0]["message"]
             msg["content"] = (msg.get("content") or "") + _provenance_footer(prov_model, prov_role)
             data["x_llmspaghetti"] = _provenance_meta(prov_model, prov_role, used_fallback)
+            if tools_used:
+                data["x_llmspaghetti"]["tools"] = tools_used
             return JSONResponse(data, status_code=upstream.status_code, headers=resp_headers)
         except Exception as e:
             log.debug(f"provenance tag skipped (unparseable body): {e}")

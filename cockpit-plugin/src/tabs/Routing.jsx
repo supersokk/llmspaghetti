@@ -666,7 +666,7 @@ function SmartRoutingPanel({ onAlert }) {
 const ALL_TOOLS = [
   { id: "filesystem",   icon: "📁", label: "Filesystem",   hint: "Read/write local files" },
   { id: "memory",       icon: "🧠", label: "Memory",       hint: "Persistent memory across sessions" },
-  { id: "fetch",        icon: "🌐", label: "Fetch",        hint: "Read web pages and URLs" },
+  { id: "fetch",        icon: "🌐", label: "Fetch",        hint: "Read web pages and URLs — built in, no install", builtin: true },
   { id: "brave-search", icon: "🦁", label: "Brave Search", hint: "Web search (needs API key)" },
   { id: "github",       icon: "🐙", label: "GitHub",       hint: "Read/write repos (needs token)" },
   { id: "sqlite",       icon: "📦", label: "SQLite",       hint: "Query local .db files" },
@@ -758,7 +758,9 @@ function ToolsPanel({ roleTools, mcpInstalled, onToolChange, onSave, saving }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
                           gap: "0.4rem" }}>
               {ALL_TOOLS.map(tool => {
-                const isInstalled = mcpInstalled[tool.id];
+                // Built-in tools (fetch) are always available — the router runs them
+                // itself, no MCP server to install.
+                const isInstalled = tool.builtin || mcpInstalled[tool.id];
                 const isEnabled   = enabled.includes(tool.id);
                 return (
                   <label key={tool.id} style={{

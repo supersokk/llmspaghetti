@@ -144,6 +144,12 @@
   .insight-row .v{font-weight:600;font-family:'JetBrains Mono',monospace;
     font-size:.8rem}
   .insight-empty{color:var(--dim);font-size:.82rem;line-height:1.6}
+  .insight-tools{margin-top:.8rem;padding-top:.6rem;border-top:1px solid rgba(48,54,61,.5)}
+  .insight-tools .k{color:var(--dim);font-size:.72rem;text-transform:uppercase;
+    letter-spacing:.05em;margin-bottom:.4rem}
+  .tool-call{font-size:.78rem;color:var(--text);padding:.2rem 0;word-break:break-all}
+  .tool-call b{color:var(--accent2);font-family:'JetBrains Mono',monospace}
+  .tool-call span{color:var(--dim)}
 
   footer{flex-shrink:0;border-top:1px solid var(--border);background:var(--surface);
     padding:.9rem 1.25rem;
@@ -502,12 +508,22 @@ function toast(msg, kind){
 
 function renderInsight(info){
   if(!info){ return; }
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const model = info.model || "—", role = info.role || "—";
+  // Tools the model actually used this turn (built-in fetch, MCP servers, …) — the
+  // router reports them in x_llmspaghetti so tool use is visible, not hidden.
+  let toolsHtml = "";
+  if(Array.isArray(info.tools) && info.tools.length){
+    toolsHtml = `<div class="insight-tools"><div class="k">Tools used</div>` +
+      info.tools.map(t => `<div class="tool-call">🔧 <b>${esc(t.name)}</b>` +
+        (t.arg ? ` <span>${esc(t.arg)}</span>` : "") + `</div>`).join("") + `</div>`;
+  }
   $insight.innerHTML = `
-    <div class="insight-row"><span class="k">Role</span><span class="v" style="color:var(--purple)">${role}</span></div>
-    <div class="insight-row"><span class="k">Model</span><span class="v" style="color:var(--accent2)">${model}</span></div>
+    <div class="insight-row"><span class="k">Role</span><span class="v" style="color:var(--purple)">${esc(role)}</span></div>
+    <div class="insight-row"><span class="k">Model</span><span class="v" style="color:var(--accent2)">${esc(model)}</span></div>
     <div class="insight-row"><span class="k">Fallback</span><span class="v">${info.fallback ? "yes" : "no"}</span></div>
-    <div class="insight-row"><span class="k">Router</span><span class="v" style="color:var(--green)">llmspaghetti</span></div>`;
+    <div class="insight-row"><span class="k">Router</span><span class="v" style="color:var(--green)">llmspaghetti</span></div>
+    ${toolsHtml}`;
 }
 
 // Minimal inline renderer: turn ![alt](url) markdown into a real <img>, leave
