@@ -162,7 +162,10 @@ function ProviderHealth() {
 
   const refresh = useCallback(async () => {
     try {
-      const yaml   = await cockpit.file(ROLES_PATH_DH).read();
+      // config/ is root-owned, so this MUST read as superuser — without it the read
+      // returns empty and Provider Health falsely says "No roles configured" even
+      // when roles are set. (Every other tab reads this file with superuser.)
+      const yaml   = await cockpit.file(ROLES_PATH_DH, { superuser: "try" }).read();
       const parsed = _parseRolesDH(yaml || "");
 
       const allModels = new Set();

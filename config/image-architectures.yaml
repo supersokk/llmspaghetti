@@ -30,16 +30,6 @@ architectures:
     vram_gb: 12
     blurb: "Black Forest Labs. Top-tier quality; needs a bigger card."
 
-  - id: zimage
-    name: "Z-Image (Tongyi)"
-    builtin: false
-    experimental: true
-    vram_gb: 12
-    blurb: "Alibaba's Z-Image — the architecture behind Z-Anime and its fine-tunes. Uses a Qwen text encoder; use an AIO checkpoint."
-    # Utility nodes the official Z-Image workflow uses. Harmless if unused by our
-    # graph; installed so the ecosystem is complete. Add/remove as needed.
-    comfy_nodes:
-      - name: "rgthree-comfy"
-        repo: "https://github.com/rgthree/rgthree-comfy"
-    # Honest note surfaced in the UI:
-    note: "Experimental — Z-Image isn't native in mainline ComfyUI yet. Loads via a standard checkpoint loader (AIO variant); if sampling is off, the template at config/image-workflows/zimage.json is drop-in editable."
+# Z-Image was here as an experimental pack. Removed — it's now handled the normal
+# way: build the graph in ComfyUI and bring it in via the Image tab's "Import
+# ComfyUI workflow" panel, same as any other architecture. No bespoke pack needed.

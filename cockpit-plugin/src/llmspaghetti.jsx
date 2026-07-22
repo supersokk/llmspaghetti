@@ -165,7 +165,7 @@ const STYLES = `
   input:focus, textarea:focus, select:focus { border-color: ${C.accent}; }
   textarea { resize: vertical; min-height: 120px; font-family: monospace; }
   label { display: block; font-size: 0.82rem; font-weight: 600;
-          color: ${C.dim}; margin-bottom: 0.35rem; }
+          color: ${C.text}; margin-bottom: 0.35rem; }
   .field { margin-bottom: 1rem; }
   .hint  { font-size: 0.76rem; color: ${C.dim}; margin-top: 0.25rem; }
 
@@ -657,27 +657,41 @@ function Settings() {
           Keys are stored in <code style={{ color: C.accent2 }}>{API_KEYS_PATH}</code>.
           Only enter keys for providers you use — local Ollama models need no keys.
         </p>
-        {API_KEY_FIELDS.map(({ key, label, hint }) => (
-          <div className="field" key={key}>
-            <label>{label}</label>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input
-                type={showKey[key] ? "text" : "password"}
-                value={apiKeys[key] || ""}
-                onChange={setKey(key)}
-                placeholder={`${key}=…`}
-                style={{ ...SETTINGS_INPUT_STYLE, flex: 1 }}
-              />
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => toggleShow(key)}
-                style={{ flexShrink: 0 }}>
-                {showKey[key] ? "Hide" : "Show"}
-              </button>
+        {API_KEY_FIELDS.map(({ key, label, hint }, i) => {
+          const isSet = !!(apiKeys[key] || "").trim();
+          return (
+            <div key={key} style={{ padding: "0.85rem 0",
+              borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem",
+                            marginBottom: "0.4rem" }}>
+                <span style={{ fontSize: "0.86rem", fontWeight: 600, color: C.text }}>{label}</span>
+                <span style={{ flex: 1 }} />
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                               fontSize: "0.72rem", color: isSet ? C.green : C.dim }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%",
+                                 background: isSet ? C.green : C.border }} />
+                  {isSet ? "set" : "not set"}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <input
+                  type={showKey[key] ? "text" : "password"}
+                  value={apiKeys[key] || ""}
+                  onChange={setKey(key)}
+                  placeholder={`${key}=…`}
+                  style={{ ...SETTINGS_INPUT_STYLE, flex: 1 }}
+                />
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => toggleShow(key)}
+                  style={{ flexShrink: 0 }}>
+                  {showKey[key] ? "Hide" : "Show"}
+                </button>
+              </div>
+              <div style={{ fontSize: "0.76rem", color: C.dim, marginTop: "0.35rem" }}>{hint}</div>
             </div>
-            <div className="hint">{hint}</div>
-          </div>
-        ))}
+          );
+        })}
         <button className="btn btn-primary" onClick={saveApiKeys} disabled={saving}>
           {saving ? <><div className="spinner" /> Saving…</> : "Save keys"}
         </button>
