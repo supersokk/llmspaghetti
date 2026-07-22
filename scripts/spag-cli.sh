@@ -142,6 +142,14 @@ cmd_update() {
       cp -r "$SRC_DIR/spagdesk/." "$INSTALL_DIR/spagdesk/" 2>/dev/null || true   # all static assets (index.html, icon.svg, manifest.json, …)
       cp    "$SRC_DIR"/scripts/*.sh      "$INSTALL_DIR/scripts/"           2>/dev/null || true
 
+      # Shipped CATALOGS (the Image tab's engine/architecture lists) are pure product
+      # data — no user state — so refresh them, or catalog edits (e.g. dropping the
+      # experimental Z-Image pack) never reach an installed box. User-managed configs
+      # (router_roles.yaml, image.yaml, api_keys.env, …) are still left untouched.
+      for _cat in image-engines.yaml image-architectures.yaml; do
+        [[ -f "$SRC_DIR/config/$_cat" ]] && cp "$SRC_DIR/config/$_cat" "$INSTALL_DIR/config/$_cat" 2>/dev/null || true
+      done
+
       # Config files are deliberately NOT copied over (that would clobber roles,
       # keys and render settings) — but that means a NEW setting added in a release
       # never reaches an installed box. This adds only the MISSING keys, with their
