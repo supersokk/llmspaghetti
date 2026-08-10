@@ -1,0 +1,13 @@
+[Unit]
+Description=LLMSpaghetti — re-detect GPU after a driver-install reboot
+# Only runs when a driver reboot was pending; a no-op on every normal boot.
+ConditionPathExists=/opt/llmspaghetti/.needs-reboot
+After=ollama.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/llmspaghetti/scripts/gpu-refresh.sh
+
+[Install]
+WantedBy=multi-user.target
