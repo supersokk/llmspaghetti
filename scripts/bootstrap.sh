@@ -195,6 +195,12 @@ systemctl daemon-reload
 # failed"). Restart to apply OLLAMA_HOST=0.0.0.0 + the models dir BEFORE first-boot
 # pulls any models (so they land in the configured dir).
 systemctl enable ollama
+# Ollama runs as its OWN user and must own the models dir to create blobs/ there.
+# CRITICAL: this chown must be HERE — the earlier chowns (file-copy section) run
+# before Ollama's installer creates the `ollama` user, so they silently no-op
+# (|| true) and models stays llmspaghetti-owned → Ollama crash-loops on
+# "mkdir models/blobs: permission denied". Do it now the user exists, before start.
+chown -R ollama:ollama "$INSTALL_DIR/models" 2>/dev/null || true
 systemctl restart ollama
 success "Ollama configured and running"
 
