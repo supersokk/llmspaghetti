@@ -93,7 +93,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install ruff
+        # Pinned: unpinned ruff pulls the latest release each run, and newer
+        # ruff turns on rules (e.g. EXE001, I001) by default that flag existing
+        # files we never selected — turning every PR red on unrelated code.
+        # Bump this deliberately when we want a new ruleset.
+        run: pip install ruff==0.15.20
 
       - name: Run ruff
         run: |
