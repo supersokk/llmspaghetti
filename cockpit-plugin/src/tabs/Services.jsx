@@ -4,7 +4,7 @@
  * MCP Tools: tap-to-install npm-based MCP servers
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 const cockpit = window.cockpit || {
   spawn: (cmd, opts) => ({ stream: () => {}, then: (f) => { f(""); return { catch: () => {} }; }, catch: () => {} }),
@@ -18,11 +18,25 @@ const C = {
   text: "#e6edf3", dim: "#8b949e", purple: "#bc8cff",
 };
 
+// Read-only status polling: unprivileged is fine, must never prompt, and a
+// failure just means "not found" — so it swallows errors into "".
 const run = (cmd) => new Promise((res) => {
   let out = "";
   const proc = cockpit.spawn(["bash", "-c", cmd], { superuser: "try", err: "message" });
   proc.stream(d => { out += d; });
   proc.then(() => res(out.trim())).catch(() => res(""));
+});
+
+// Privileged actions (install/start/stop/remove): stream output live via
+// onData, and REJECT on failure so it surfaces instead of looking like success.
+// superuser:"require" (not "try") makes Cockpit turn on admin access rather than
+// silently dropping to an unprivileged spawn that fails polkit.
+const runPriv = (cmd, onData) => new Promise((res, rej) => {
+  let out = "";
+  const proc = cockpit.spawn(["bash", "-c", cmd], { superuser: "require", err: "message" });
+  proc.stream(d => { out += d; if (onData) onData(d); });
+  proc.then(() => res(out.trim()))
+      .catch(e => rej((e && e.message) ? e.message : String(e)));
 });
 
 const MCP_JSON_PATH   = "/opt/llmspaghetti/config/mcp.json";
@@ -79,7 +93,7 @@ const SERVICES = [
     category:    "Runtimes",
     // Idempotent: install-gpu-drivers.sh skips if rocm-hip-sdk is already present.
     check_cmd:   "dpkg -l 2>/dev/null | grep -c 'rocm-hip-sdk' || echo 0",
-    install_cmd: "bash /opt/llmspaghetti/scripts/install-gpu-drivers.sh rocm 2>&1 | tail -15",
+    install_cmd: "bash /opt/llmspaghetti/scripts/install-gpu-drivers.sh rocm 2>&1",
     requires_gpu: true,
     reboot:      true,
   },
@@ -96,7 +110,7 @@ const SERVICES = [
     // systemctl; install runs our idempotent setup script.
     native:      true,
     service:     "comfyui",
-    install_cmd: "bash /opt/llmspaghetti/scripts/comfyui-setup.sh 2>&1 | tail -15",
+    install_cmd: "bash /opt/llmspaghetti/scripts/comfyui-setup.sh 2>&1",
     requires_gpu: true,
   },
   {
@@ -428,6 +442,12 @@ export default function Services() {
   const [busyMcp, setBusyMcp]         = useState(null);
   const [log, setLog]                 = useState([]);
   const [serverIp, setServerIp]       = useState("localhost");
+  const logRef                        = useRef(null);
+
+  // Keep the live log scrolled to the newest line as install output streams in.
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [log]);
 
   useEffect(() => {
     run("hostname -I | awk '{print $1}'").then(ip => { if (ip) setServerIp(ip); });
@@ -491,8 +511,12 @@ export default function Services() {
 
   useEffect(() => { checkMcpStatus(); }, [checkMcpStatus]);
 
+  // Chronological + capped, so a live install streams top→bottom and auto-scrolls.
   const appendLog = (msg) =>
-    setLog(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 49)]);
+    setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`].slice(-400));
+  // Raw streamed lines (no timestamp) from a running install.
+  const appendLines = (lines) =>
+    setLog(prev => [...prev, ...lines].slice(-400));
 
   // ── Docker actions ────────────────────────────────────────────────────────
 
@@ -525,11 +549,24 @@ export default function Services() {
           default: return;
         }
       }
-      const out = await run(cmd);
-      appendLog(`${svc.name} ${action} complete${out ? `: ${out}` : ""}`);
+      // Stream output live into the log, buffering partial lines between chunks.
+      let buf = "";
+      const onData = (chunk) => {
+        buf += chunk;
+        const parts = buf.split("\n");
+        buf = parts.pop();               // keep the incomplete trailing line
+        const done = parts.filter(l => l.length > 0);
+        if (done.length) appendLines(done);
+      };
+      await runPriv(cmd, onData);
+      if (buf.trim()) appendLines([buf.trim()]);
+      appendLog(`✓ ${svc.name} ${action} complete`);
       await refresh();
     } catch (e) {
-      appendLog(`${svc.name} ${action} failed: ${e}`);
+      const msg = String(e);
+      appendLog(`${svc.name} ${action} failed: ${msg}`);
+      if (/interactive authentication|not authorized|access denied/i.test(msg))
+        appendLog(`→ Cockpit is in limited-access mode. Click "Turn on administrative access" at the top of the page, then retry.`);
     } finally {
       setBusy(null);
     }
@@ -657,11 +694,20 @@ export default function Services() {
       {log.length > 0 && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`,
                       borderRadius: "10px", padding: "1rem 1.25rem" }}>
-          <div style={{ fontSize: "0.72rem", color: C.dim, fontWeight: 600,
-                        textTransform: "uppercase", letterSpacing: "0.05em",
-                        marginBottom: "0.5rem" }}>Action log</div>
-          <div style={{ fontFamily: "monospace", fontSize: "0.78rem",
-                        color: C.dim, lineHeight: 1.7 }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+                        alignItems: "center", marginBottom: "0.5rem" }}>
+            <div style={{ fontSize: "0.72rem", color: C.dim, fontWeight: 600,
+                          textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Action log {busy && <span style={{ color: C.accent2 }}>· running…</span>}
+            </div>
+            <button onClick={() => setLog([])}
+                    style={{ background: "none", border: "none", color: C.dim,
+                             cursor: "pointer", fontSize: "0.72rem" }}>clear</button>
+          </div>
+          <div ref={logRef} style={{ fontFamily: "monospace", fontSize: "0.78rem",
+                        color: C.dim, lineHeight: 1.6, maxHeight: "320px",
+                        overflowY: "auto", whiteSpace: "pre-wrap",
+                        wordBreak: "break-word" }}>
             {log.map((l, i) => <div key={i}>{l}</div>)}
           </div>
         </div>

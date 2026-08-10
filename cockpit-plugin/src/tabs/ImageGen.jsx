@@ -547,12 +547,22 @@ export default function ImageGen() {
       : "systemctl start comfyui";
 
     setAlert({ type: "ok", msg: `Starting ComfyUI ${where}…` });
-    cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" }).then(
+    // superuser:"require" (not "try") — a bare "try" silently drops to an
+    // unprivileged spawn when Cockpit's admin bridge is off, and `systemctl
+    // start` then fails polkit with "requires interactive authentication".
+    // "require" makes Cockpit turn on admin access (prompting once) instead.
+    cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "require", err: "message" }).then(
       () => { setAlert({ type: "ok", msg: `ComfyUI starting ${where} — give it ~10s, then it'll connect.` });
               setTimeout(loadAll, 8000); },
-      (e) => setAlert({ type: "err", msg: onNode
-              ? `Couldn't start ComfyUI on ${node.id} (${(e && e.message) || e}). Not installed there yet? Cockpit → Nodes → ${node.id} → 🖼 Install ComfyUI.`
-              : `Couldn't start the service (${(e && e.message) || e}). Not installed yet? Run on the box:  spag comfyui install` }),
+      (e) => {
+        const msg = (e && e.message) || String(e);
+        const authy = /interactive authentication|not authorized|access denied/i.test(msg);
+        setAlert({ type: "err", msg: onNode
+          ? `Couldn't start ComfyUI on ${node.id} (${msg}). Not installed there yet? Cockpit → Nodes → ${node.id} → 🖼 Install ComfyUI.`
+          : authy
+            ? `Couldn't start the service — Cockpit is in limited-access mode. Click "Turn on administrative access" at the top of Cockpit, then press Start again.`
+            : `Couldn't start the service (${msg}). Not installed yet? Run on the box:  spag comfyui install` });
+      },
     );
   };
 
