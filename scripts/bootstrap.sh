@@ -136,6 +136,7 @@ if [[ -d "$SCRIPT_DIR/../console" ]]; then
   cp -r "$SCRIPT_DIR/../stack/."   "$INSTALL_DIR/"
   cp -r "$SCRIPT_DIR/../spagdesk"  "$INSTALL_DIR/"   # SpagDesk native workspace (static)
   cp "$SCRIPT_DIR/gpu-detect.sh"            "$INSTALL_DIR/scripts/"
+  cp "$SCRIPT_DIR/gpu-refresh.sh"           "$INSTALL_DIR/scripts/"  # post-reboot GPU re-detect
   cp "$SCRIPT_DIR/install-gpu-drivers.sh"   "$INSTALL_DIR/scripts/"
   cp "$SCRIPT_DIR/collect-stats.sh"         "$INSTALL_DIR/scripts/"  # dashboard live stats
   cp "$SCRIPT_DIR/comfyui-setup.sh"         "$INSTALL_DIR/scripts/"  # image-gen backend installer
@@ -263,6 +264,9 @@ systemctl daemon-reload
 systemctl enable llmspaghetti-firstboot.service
 systemctl enable llmspaghetti-status.service
 systemctl enable llmspaghetti-watchdog.service
+# Refreshes gpu-info.json on the reboot after a driver install (nouveau held the
+# card during bootstrap → stale "cpu"); no-op on normal boots via its Condition.
+systemctl enable llmspaghetti-gpu-refresh.service 2>/dev/null || true
 # llmspaghetti.service is enabled by firstboot wizard after setup
 success "Services installed"
 
