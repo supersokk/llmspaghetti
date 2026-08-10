@@ -868,9 +868,9 @@ export default function Models() {
             <span style={{ fontSize: "0.85rem", fontWeight: 600, color: C.text }}>
               ↓ Downloading <span style={{ fontFamily: "monospace", color: C.accent2 }}>{pulling}</span>
             </span>
-            <span style={{ fontSize: "0.78rem", color: C.dim, fontFamily: "monospace" }}>
-              {pullProg && pullProg.label}
-              {pullProg && pullProg.pct != null ? `  ·  ${pullProg.pct}%` : ""}
+            <span style={{ fontSize: "0.78rem", color: C.accent2, fontWeight: 600,
+                           fontFamily: "monospace" }}>
+              {pullProg && pullProg.pct != null ? `${pullProg.pct}%` : ""}
             </span>
           </div>
           <div style={{ height: 8, background: C.bg, borderRadius: 5, overflow: "hidden",
@@ -884,7 +884,13 @@ export default function Models() {
               opacity: pullProg && pullProg.pct == null ? 0.5 : 1,
             }} />
           </div>
-          <div style={{ fontSize: "0.72rem", color: C.dim, marginTop: "0.45rem" }}>
+          {/* Byte progress under the bar (e.g. "2.6 GB / 6.9 GB"), or the current
+              phase when there are no bytes yet ("pulling manifest", "verifying…"). */}
+          <div style={{ fontSize: "0.75rem", color: C.text, marginTop: "0.45rem",
+                        fontFamily: "monospace" }}>
+            {pullProg && pullProg.label ? pullProg.label : "starting…"}
+          </div>
+          <div style={{ fontSize: "0.72rem", color: C.dim, marginTop: "0.3rem" }}>
             Runs in the background — you can keep searching and queue the next one after.
           </div>
         </div>

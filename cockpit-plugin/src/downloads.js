@@ -44,17 +44,35 @@ function _saveHistory(history) {
   } catch { /* quota / unavailable — ignore */ }
 }
 
-// Ollama pull stream → {pct,label}. Lines look like
-// "pulling <digest>:  45% ▕███▏ 2.1 GB/4.7 GB  35 MB/s" plus phase lines.
-function parseOllama(chunk) {
-  const tail = chunk.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
-  const pctM  = tail.match(/(\d+)%/);
-  const sizeM = tail.match(/([\d.]+\s*[KMGT]?B)\s*\/\s*([\d.]+\s*[KMGT]?B)/);
-  const phase = tail.match(/^\s*(pulling manifest|verifying|writing|success|pulling\b[^:]*)/i);
-  return {
-    pct:   pctM ? Math.min(100, parseInt(pctM[1], 10)) : null,
-    label: sizeM ? `${sizeM[1]} / ${sizeM[2]}` : (phase ? phase[1].trim() : tail.trim().slice(0, 48)),
-  };
+// Human-readable bytes, e.g. 2684354560 → "2.5 GB". Whole numbers for bytes and
+// for values ≥ 10 in a unit; one decimal otherwise, so a bar reads "2.6 / 6.9 GB".
+function fmtBytes(n) {
+  if (!n || n < 0) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i === 0 || v >= 10 ? 0 : 1)} ${u[i]}`;
+}
+
+// Ollama /api/pull JSON stream → {pct, label}. Each NDJSON line is one of:
+//   {"status":"pulling <digest>","total":N,"completed":M}   ← byte progress
+//   {"status":"pulling manifest" | "verifying …" | "success"}  ← phase only
+// Byte-exact and TTY-independent — the CLI's text bar froze ~1/3 in when piped
+// through cockpit.spawn (no TTY), regardless of model. pct is null on
+// status-only lines so the caller keeps the last known percentage.
+function parsePull(chunk) {
+  let pct = null, label = null;
+  for (const ln of chunk.split("\n")) {
+    if (!ln.trim()) continue;
+    let j; try { j = JSON.parse(ln); } catch { continue; }
+    if (typeof j.total === "number" && typeof j.completed === "number" && j.total > 0) {
+      pct   = Math.min(100, Math.round(j.completed / j.total * 100));
+      label = `${fmtBytes(j.completed)} / ${fmtBytes(j.total)}`;
+    } else if (j.status) {
+      label = j.status;
+    }
+  }
+  return { pct, label };
 }
 
 // aria2c/wget stream → percent (both emit an "NN%").
@@ -62,20 +80,6 @@ function parseFile(chunk) {
   const tail = chunk.replace(/\r/g, "\n").split("\n").filter(Boolean).slice(-1)[0] || "";
   const m = tail.match(/(\d+)%/);
   return { pct: m ? Math.min(100, parseInt(m[1], 10)) : null };
-}
-
-// Node Ollama /api/pull stream → {pct,label}. Emits JSON lines like
-// {"status":"pulling <digest>","total":N,"completed":M}. pct is null on
-// status-only lines so the caller keeps the last known percentage.
-function parseNodePull(chunk) {
-  let pct = null, label = null;
-  for (const ln of chunk.split("\n")) {
-    if (!ln.trim()) continue;
-    let j; try { j = JSON.parse(ln); } catch { continue; }
-    if (j.total && j.completed) pct = Math.min(100, Math.round(j.completed / j.total * 100));
-    if (j.status) label = j.status;
-  }
-  return { pct, label };
 }
 
 export const downloads = {
@@ -131,15 +135,22 @@ export const downloads = {
   },
 
   // ── Ollama model pull ──────────────────────────────────────────────────────
+  // Uses the local Ollama /api/pull JSON stream (not `ollama pull`) so progress
+  // is byte-exact — the CLI's text bar froze partway when piped through
+  // cockpit.spawn. Same endpoint/parse as node pulls, so both show "M / N GB".
   startOllamaPull(modelId) {
     if (this.isActive(modelId)) return false;
     const id = _nextId();
-    const proc = _ck.spawn(["bash", "-c", `${PATHFIX} ollama pull '${modelId}'`],
-      { superuser: "try", err: "message" });
+    const cmd = `curl -sN -X POST http://localhost:11434/api/pull ` +
+                `-d '{"model":${JSON.stringify(modelId)}}'`;
+    const proc = _ck.spawn(["bash", "-c", PATHFIX + cmd], { err: "message" });
     this.active.push({ id, kind: "model", name: modelId, pct: null,
       label: "starting…", phase: "run", startedAt: Date.now(), _proc: proc });
     this._emit();
-    proc.stream(d => { const p = parseOllama(d); this._patch(id, { pct: p.pct, label: p.label }); });
+    proc.stream(d => {
+      const p = parsePull(d);
+      this._patch(id, { pct: p.pct != null ? p.pct : undefined, label: p.label || undefined });
+    });
     proc.then(
       () => this._finish(id, "done", `${modelId} downloaded`),
       (e) => this._finish(id, "error", `Pull failed: ${(e && e.message) || e}`),
@@ -158,7 +169,7 @@ export const downloads = {
       label: "starting…", phase: "run", startedAt: Date.now(), _proc: proc });
     this._emit();
     proc.stream(d => {
-      const p = parseNodePull(d);
+      const p = parsePull(d);
       this._patch(id, { pct: p.pct != null ? p.pct : undefined, label: p.label || undefined });
     });
     proc.then(
