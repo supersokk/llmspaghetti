@@ -25,11 +25,17 @@ const C = {
 // lives), so prepend a full PATH or commands like `ollama`/`nvidia-smi` silently
 // fail — the cause of empty dashboards and "no models installed".
 const PATHFIX = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH; ";
-const run = (cmd) => new Promise((res) => {
-  let out = "";
+// Client-side timeout: if a spawn wedges (e.g. Cockpit channels contended while a
+// model download streams), abandon it and close the channel so the next poll can
+// try — otherwise a single stuck collect freezes the whole dashboard for good.
+const run = (cmd, timeoutMs = 9000) => new Promise((res) => {
+  let out = "", done = false;
   const proc = cockpit.spawn(["bash", "-c", PATHFIX + cmd], { superuser: "try", err: "message" });
+  const finish = (v) => { if (!done) { done = true; res(v); } };
+  const timer = setTimeout(() => { try { proc.close("terminated"); } catch { /* ignore */ } finish(""); }, timeoutMs);
   proc.stream(d => { out += d; });
-  proc.then(() => res(out.trim())).catch(() => res(""));
+  proc.then(() => { clearTimeout(timer); finish(out.trim()); })
+      .catch(() => { clearTimeout(timer); finish(""); });
 });
 
 const fmt = {
@@ -567,6 +573,7 @@ export default function Dashboard({ onTabChange }) {
     () => { try { return localStorage.getItem("spag-vulkan-notice") === "1"; } catch { return false; } }
   );
   const intervalRef = useRef(null);
+  const inFlight    = useRef(false);
 
   const STATS_SCRIPT = "/opt/llmspaghetti/scripts/collect-stats.sh";
 
@@ -585,8 +592,14 @@ export default function Dashboard({ onTabChange }) {
   };
 
   const refresh = useCallback(async () => {
+    // Don't stack polls: if the previous collect is still running (slow box during
+    // a download), skip this tick instead of piling on another spawn.
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
-      const raw = await run(`bash ${STATS_SCRIPT} 2>/dev/null`);
+      // `timeout 8` on the box guarantees the collector self-terminates even if
+      // the client-side guard is bypassed — no orphaned bash during downloads.
+      const raw = await run(`timeout 8 bash ${STATS_SCRIPT} 2>/dev/null`);
       if (!raw) return;
       const data = JSON.parse(raw);
       setStats(data);
@@ -603,6 +616,7 @@ export default function Dashboard({ onTabChange }) {
     } catch (e) {
       console.error("Stats parse error:", e);
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   }, []);
