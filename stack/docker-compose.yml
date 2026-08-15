@@ -58,7 +58,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+      # The router image ships no curl/wget, so a curl healthcheck fails forever
+      # ("exec: curl: not found") and the container shows (unhealthy) even while
+      # /health returns 200 — which can also trip depends_on: service_healthy.
+      # Python is always present in this image, so probe with urllib instead.
+      test: ["CMD", "python3", "-c", "import urllib.request as u,sys; sys.exit(0 if u.urlopen('http://localhost:5000/health',timeout=4).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -101,7 +105,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:4000/health"]
+      # Same as the router: the litellm image has no curl/wget, only python.
+      test: ["CMD", "python3", "-c", "import urllib.request as u,sys; sys.exit(0 if u.urlopen('http://localhost:4000/health',timeout=8).status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 5
