@@ -29,7 +29,12 @@ collect_cpu() {
 
   local usage=0
   if (( total2 - total1 > 0 )); then
-    usage=$(echo "scale=1; 100 * (1 - ($idle2 - $idle1) / ($total2 - $total1))" | bc)
+    # awk, NOT bc: bc drops the leading zero on values <1 (prints ".5" not
+    # "0.5"), which is invalid JSON and corrupts the ENTIRE dashboard payload —
+    # the browser's JSON.parse then throws every poll and the dashboard freezes
+    # (seen during downloads, when these rates go fractional). awk printf keeps
+    # the leading zero. Same reason applies to temp and the network rates below.
+    usage=$(awk "BEGIN{printf \"%.1f\", 100*(1-($idle2-$idle1)/($total2-$total1))}")
   fi
 
   # Load average
@@ -45,7 +50,7 @@ collect_cpu() {
       grep -oP '\+\K[0-9.]+' | head -1 || echo 0)
   fi
   if [[ "$temp" == "0" ]] && [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
-    temp=$(echo "scale=1; $(cat /sys/class/thermal/thermal_zone0/temp) / 1000" | bc)
+    temp=$(awk "BEGIN{printf \"%.1f\", $(cat /sys/class/thermal/thermal_zone0/temp)/1000}")
   fi
 
   # Clock speed (MHz)
@@ -136,9 +141,12 @@ collect_network() {
   rx2=$(cat /sys/class/net/${iface}/statistics/rx_bytes 2>/dev/null || echo 0)
   tx2=$(cat /sys/class/net/${iface}/statistics/tx_bytes 2>/dev/null || echo 0)
 
+  # awk (not bc): bc prints ".69" for values <1 — invalid JSON that breaks the
+  # whole payload. This bites precisely during downloads, when the rates go
+  # fractional. awk printf always emits a leading zero ("0.69").
   local rx_rate tx_rate
-  rx_rate=$(echo "scale=2; ($rx2 - $rx1) * 2 / 1024 / 1024" | bc)
-  tx_rate=$(echo "scale=2; ($tx2 - $tx1) * 2 / 1024 / 1024" | bc)
+  rx_rate=$(awk "BEGIN{printf \"%.2f\", ($rx2 - $rx1) * 2 / 1024 / 1024}")
+  tx_rate=$(awk "BEGIN{printf \"%.2f\", ($tx2 - $tx1) * 2 / 1024 / 1024}")
 
   local ip
   ip=$(hostname -I | awk '{print $1}')
